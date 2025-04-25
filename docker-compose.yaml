@@ -1,0 +1,9 @@
+services:
+  epg-fetcher:
+    container_name: epg-fetcher
+    environment:
+      EPG_URL: "URL"
+      INTERVAL: 3600
+    volumes:
+      - ./output:/app/output
+    restart: unless-stopped
