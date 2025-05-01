@@ -56,6 +56,20 @@ def create_empty_tree(tag:str = "root"):
     root = ET.Element(tag)  # Create a root element for the empty tree
     return ET.ElementTree(root)
 
+def round_time_to_nearest_five(dt):
+    return _round_time_to_nearest_five(get_datetime(DATE_FMT))
+
+def _round_time_to_nearest_five(dt):
+    if dt is None:
+        return None
+    discard = timedelta(minutes=dt.minute % 5,
+                        seconds=dt.second,
+                        microseconds=dt.microsecond)
+    dt -= discard
+    if discard >= timedelta(minutes=2.5):
+        dt += timedelta(minutes=5)
+    return dt
+
 def attributes_match(existing, element) -> bool:
     existing_keys = existing.attrib.keys()
     element_keys = element.attrib.keys()
@@ -69,6 +83,11 @@ def attributes_match(existing, element) -> bool:
         
         if existing_key == "start":
             continue
+
+        if existing_key == "stop":
+            if round_time_to_nearest_five(existing.attrib.get(existing_key)) == round_time_to_nearest_five(element.attrib.get(existing_key)):
+                continue
+
         
         if existing.attrib.get(existing_key) != element.attrib.get(existing_key):
             return False
