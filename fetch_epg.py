@@ -67,6 +67,9 @@ def attributes_match(existing, element) -> bool:
         if existing_key not in element_keys:
             return False
         
+        if existing_key == "start":
+            continue
+        
         if existing.attrib.get(existing_key) != element.attrib.get(existing_key):
             return False
         
