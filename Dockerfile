@@ -11,7 +11,7 @@ COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Now copy the rest of your app
-COPY ./fetch_epg.py /app/
+COPY . /app/
 
 # Optional default environment variable
 ENV INTERVAL=3600

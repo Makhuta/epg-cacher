@@ -1,74 +1,28 @@
-import requests
 import os
-import shutil
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-import re
+import tarfile
+import gzip
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-EPG_URL = os.getenv("EPG_URL", None)
-FETCH_CACHE = os.path.join(OUTPUT_DIR, "fetch_cache.xml")
-EPG_PATH = os.path.join(OUTPUT_DIR, "epg.xml")
-EPG_OLD = os.path.join(OUTPUT_DIR, "epg_old.xml")
-
-DATE_FMT = "%Y%m%d%H%M%S %z"  # XMLTV standard time format
-
-# Matches invalid XML characters (non-printable, except newline and tab)
-INVALID_XML_CHARS = re.compile(
-    r"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]"
+from fetch_vbox import run as vbox_run
+from fetch_epgshare import run as epgshare_run
+from add_icons import run as add_icons_run
+from constants import (
+    OUTPUT_DIR
 )
 
-def clean_xml(content: str) -> str:
-    return INVALID_XML_CHARS.sub("_", content)
 
-def download_epg():
-    print("Downloading EPG...")
-    if EPG_URL is None:
-        raise Exception("EPG_URL is None")
-    r = requests.get(EPG_URL)
-    r.raise_for_status()
-    raw_text = r.content.decode("utf-8", errors="replace")
-    cleaned = clean_xml(raw_text)
-    with open(FETCH_CACHE, "w", encoding="utf-8") as f:
-        f.write(cleaned)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def backup_old_epg() -> None:
-    if os.path.exists(EPG_PATH):
-        shutil.copy(EPG_PATH, EPG_OLD)
-    else:
-        open(EPG_OLD, "w").close()
+EPG_URL = os.getenv("EPG_URL", "http://192.168.2.45:55555/vboxXmltv.xml")
+EPG_URL_VBOX = os.getenv("EPG_URL_VBOX", "http://192.168.2.15:34402/xmltv/threadfin.xml")
+EPG_URL_EPGSHARE = os.getenv("EPG_URL_EPGSHARE", "http://192.168.2.15:34403/xmltv/threadfin.xml")
 
-def get_tree(path):
-    """Load and return an ElementTree object from a file."""
-    try:
-        tree = ET.parse(path)
-        return tree
-    except ET.ParseError as e:
-        print(f"Error parsing XML file {path}: {e}")
-        return None
 
-def create_empty_tree(tag:str = "root"):
-    """Create an empty tree with a root element."""
-    root = ET.Element(tag)  # Create a root element for the empty tree
-    return ET.ElementTree(root)
 
-def round_time_to_nearest_five(dt):
-    return _round_time_to_nearest_five(get_datetime(DATE_FMT))
-
-def _round_time_to_nearest_five(dt):
-    if dt is None:
-        return None
-    discard = timedelta(minutes=dt.minute % 5,
-                        seconds=dt.second,
-                        microseconds=dt.microsecond)
-    dt -= discard
-    if discard >= timedelta(minutes=2.5):
-        dt += timedelta(minutes=5)
-    return dt
+"""
 
 def attributes_match(existing, element) -> bool:
     existing_keys = existing.attrib.keys()
@@ -85,7 +39,7 @@ def attributes_match(existing, element) -> bool:
             continue
 
         if existing_key == "stop":
-            if round_time_to_nearest_five(existing.attrib.get(existing_key)) == round_time_to_nearest_five(element.attrib.get(existing_key)):
+            if round_time_to_nearest_five(existing.attrib.get(existing_key), DATE_FMT) == round_time_to_nearest_five(element.attrib.get(existing_key), DATE_FMT):
                 continue
 
         
@@ -95,7 +49,7 @@ def attributes_match(existing, element) -> bool:
     return True
 
 def element_exists_in_tree(element, tree):
-    """Check if the element already exists in tree based on a unique identifier or tag."""
+    ""Check if the element already exists in tree based on a unique identifier or tag.""
     root = tree.getroot()
     # Example: Check if an element with the same 'id' or 'name' exists in the tree
     for existing_elem in root.findall(element.tag):
@@ -103,17 +57,9 @@ def element_exists_in_tree(element, tree):
             return True
     return False
 
-def get_datetime(stop_str):
-    try:
-        return datetime.strptime(stop_str, DATE_FMT)
-    except Exception:
-        return None
 
-def is_old_programme(programme):
-    one_day_ago = datetime.now().astimezone() - timedelta(days=1)
-    stop = get_datetime(programme.attrib.get("stop", ""))
-    print(stop, one_day_ago)
-    return stop and stop < one_day_ago
+
+
 
 def merge_epgs():
     fetch_tree = get_tree(FETCH_CACHE)
@@ -134,32 +80,36 @@ def merge_epgs():
     if epg_old_root is not None:
         for epg_old_elem in epg_old_root:
             if not element_exists_in_tree(epg_old_elem, epg_out_tree):
-                if epg_old_elem.tag == "programme" and is_old_programme(epg_old_elem):
+                if epg_old_elem.tag == "programme" and is_old_programme(epg_old_elem, DATE_FMT):
                     print("Is programme and is old, skipping...")
                     continue
                 print(f"Element {epg_old_elem.tag} is missing, adding...")
                 epg_out_root.append(epg_old_elem)
 
     return epg_out_tree
-
-def write_epg(tree):
-    tree.write(EPG_PATH, encoding="utf-8", xml_declaration=True)
-
+"""
 
 def main():
+    vbox_run(EPG_URL)
+    #epgshare_run(EPG_URL_EPGSHARE)
+    add_icons_run(EPG_URL_VBOX, EPG_URL_EPGSHARE)
+
     # Step 1: Download and cache
-    download_epg()
+    # download_epg(EPG_URL)
+    """
+    download_epg(EPG_URL_EPGSHARE, FETCH_CACHE_EPGSHARE)
 
     # Step 2: Backup old EPG if exists
-    backup_old_epg()
+    backup_old_epg(EPG_PATH, EPG_OLD)
 
     #Step 3: Merge EPGs
     epg_out = merge_epgs()
 
     # Step 4: Write EPG
-    write_epg(epg_out)
+    write_epg(epg_out, EPG_PATH)
 
     print("DONE")
+    """
 
 if __name__ == "__main__":
     INTERVAL = int(os.getenv("INTERVAL", 3600))
