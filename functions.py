@@ -170,7 +170,7 @@ def merge_epgs(main, seccond):
 
     if seccond_tree is not None:
         for seccond_tree_elem in seccond_tree_root:
-            if element_exists_in_tree(seccond_tree_elem, main_tree):
+            if not element_exists_in_tree(seccond_tree_elem, main_tree):
                 if seccond_tree_elem.tag == "programme" and is_old_programme(seccond_tree_elem):
                     print("Is programme and is old, skipping...")
                     continue
