@@ -17,4 +17,4 @@ COPY . /app/
 ENV INTERVAL=3600
 
 # Run the script
-CMD ["python", "fetch_epg.py"]
+CMD ["python", "epg_cacher.py"]
