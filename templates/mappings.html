@@ -370,7 +370,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const value = item.dataset.value;
             const text = item.textContent;
             
-            searchInput.value = text;
+            searchInput.value = text.trim();
             select.value = value;
             hideDropdown();
             
