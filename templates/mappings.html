@@ -30,14 +30,19 @@
                     EPG1 Channel ID
                 </label>
                 {% if epg1_channels %}
-                <select id="epg1_channel" name="epg1_channel" class="form-select" required>
-                    <option value="">Select EPG1 Channel</option>
-                    {% for channel in epg1_channels %}
-                    <option value="{{ channel.id }}">
-                        {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
-                    </option>
-                    {% endfor %}
-                </select>
+                <div class="searchable-select">
+                    <input type="text" id="epg1_search" class="form-control search-input" 
+                           placeholder="Search EPG1 channels..." autocomplete="off">
+                    <select id="epg1_channel" name="epg1_channel" class="form-select mt-1" required style="display: none;">
+                        <option value="">Select EPG1 Channel</option>
+                        {% for channel in epg1_channels %}
+                        <option value="{{ channel.id }}">
+                            {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div id="epg1_dropdown" class="dropdown-list"></div>
+                </div>
                 {% else %}
                 <input type="text" id="epg1_channel" name="epg1_channel" class="form-control" required 
                        placeholder="e.g., channel1.example.com">
@@ -54,14 +59,19 @@
                     EPG2 Channel ID
                 </label>
                 {% if epg2_channels %}
-                <select id="epg2_channel" name="epg2_channel" class="form-select">
-                    <option value="">Select EPG2 Channel (optional)</option>
-                    {% for channel in epg2_channels %}
-                    <option value="{{ channel.id }}">
-                        {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
-                    </option>
-                    {% endfor %}
-                </select>
+                <div class="searchable-select">
+                    <input type="text" id="epg2_search" class="form-control search-input" 
+                           placeholder="Search EPG2 channels..." autocomplete="off">
+                    <select id="epg2_channel" name="epg2_channel" class="form-select mt-1" style="display: none;">
+                        <option value="">Select EPG2 Channel (optional)</option>
+                        {% for channel in epg2_channels %}
+                        <option value="{{ channel.id }}">
+                            {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div id="epg2_dropdown" class="dropdown-list"></div>
+                </div>
                 {% else %}
                 <input type="text" id="epg2_channel" name="epg2_channel" class="form-control" 
                        placeholder="e.g., ch001 (optional)">
@@ -206,4 +216,169 @@
         </div>
     </div>
 </div>
+
+<style>
+.searchable-select {
+    position: relative;
+}
+
+.dropdown-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-top: none;
+    border-radius: 0 0 0.375rem 0.375rem;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.dropdown-item-custom {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+    color: var(--bs-body-color);
+}
+
+.dropdown-item-custom:hover {
+    background-color: var(--bs-secondary-bg);
+}
+
+.dropdown-item-custom:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item-custom.highlighted {
+    background-color: var(--bs-primary);
+    color: white;
+}
+
+.search-input:focus + .form-select + .dropdown-list {
+    display: block;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize searchable selects
+    initSearchableSelect('epg1');
+    initSearchableSelect('epg2');
+    
+    function initSearchableSelect(prefix) {
+        const searchInput = document.getElementById(prefix + '_search');
+        const select = document.getElementById(prefix + '_channel');
+        const dropdown = document.getElementById(prefix + '_dropdown');
+        
+        if (!searchInput || !select || !dropdown) return;
+        
+        const options = Array.from(select.options).slice(1); // Skip first empty option
+        let highlightedIndex = -1;
+        
+        // Show dropdown on focus
+        searchInput.addEventListener('focus', function() {
+            showDropdown();
+        });
+        
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+                hideDropdown();
+            }
+        });
+        
+        // Handle search input
+        searchInput.addEventListener('input', function() {
+            const searchText = this.value.toLowerCase();
+            filterOptions(searchText);
+        });
+        
+        // Handle keyboard navigation
+        searchInput.addEventListener('keydown', function(e) {
+            const items = dropdown.querySelectorAll('.dropdown-item-custom');
+            
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                highlightedIndex = Math.min(highlightedIndex + 1, items.length - 1);
+                updateHighlight(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                highlightedIndex = Math.max(highlightedIndex - 1, -1);
+                updateHighlight(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (highlightedIndex >= 0 && items[highlightedIndex]) {
+                    selectOption(items[highlightedIndex]);
+                }
+            } else if (e.key === 'Escape') {
+                hideDropdown();
+            }
+        });
+        
+        function showDropdown() {
+            filterOptions(searchInput.value.toLowerCase());
+            dropdown.style.display = 'block';
+        }
+        
+        function hideDropdown() {
+            dropdown.style.display = 'none';
+            highlightedIndex = -1;
+        }
+        
+        function filterOptions(searchText) {
+            dropdown.innerHTML = '';
+            highlightedIndex = -1;
+            
+            const filteredOptions = options.filter(option => 
+                option.textContent.toLowerCase().includes(searchText)
+            );
+            
+            if (filteredOptions.length === 0) {
+                const noResults = document.createElement('div');
+                noResults.className = 'dropdown-item-custom';
+                noResults.style.color = 'var(--bs-secondary)';
+                noResults.style.fontStyle = 'italic';
+                noResults.textContent = 'No channels found';
+                dropdown.appendChild(noResults);
+                return;
+            }
+            
+            filteredOptions.forEach(option => {
+                const item = document.createElement('div');
+                item.className = 'dropdown-item-custom';
+                item.textContent = option.textContent;
+                item.dataset.value = option.value;
+                
+                item.addEventListener('click', function() {
+                    selectOption(this);
+                });
+                
+                dropdown.appendChild(item);
+            });
+        }
+        
+        function updateHighlight(items) {
+            items.forEach((item, index) => {
+                item.classList.toggle('highlighted', index === highlightedIndex);
+            });
+        }
+        
+        function selectOption(item) {
+            const value = item.dataset.value;
+            const text = item.textContent;
+            
+            searchInput.value = text;
+            select.value = value;
+            hideDropdown();
+            
+            // Trigger change event for form validation
+            select.dispatchEvent(new Event('change'));
+        }
+    }
+});
+</script>
+
 {% endblock %}
