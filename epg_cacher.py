@@ -12,6 +12,10 @@ import logging
 import shutil
 import codecs
 import re
+import gzip
+import zipfile
+import tempfile
+import csv
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
@@ -27,6 +31,7 @@ class EPGCacher:
         if not self.epg_url:
             raise ValueError("EPG_URL environment variable is required")
         
+        self.epg2_url = os.getenv("EPG2_URL")  # Optional second EPG URL for images
         self.time_tolerance_minutes = int(os.getenv("TIME_TOLERANCE_MINUTES", "10"))
         
         # File paths
@@ -34,6 +39,8 @@ class EPGCacher:
         os.makedirs(output_dir, exist_ok=True)
         self.epg_file = os.path.join(output_dir, "epg.xml")
         self.epg_old_file = os.path.join(output_dir, "epg_old.xml")
+        self.channel_mapping_file = os.path.join(output_dir, "channel_mapping.csv")
+        self.others_csv_file = os.path.join(output_dir, "others.csv")
         
         # Setup logging
         self.setup_logging()
@@ -45,7 +52,15 @@ class EPGCacher:
             'Accept': 'application/xml, text/xml, */*'
         })
         
-        self.logger.info(f"EPG Cacher initialized - URL: {self.epg_url}, "
+        # Create sample channel mapping file if none exists
+        self.create_sample_channel_mapping()
+        
+        # Load channel mapping if available
+        self.channel_mapping = self.load_channel_mapping()
+        
+        epg2_info = f", Image EPG: {self.epg2_url}" if self.epg2_url else ", No image EPG"
+        mapping_info = f", Channel mappings: {len(self.channel_mapping)}" if self.channel_mapping else ""
+        self.logger.info(f"EPG Cacher initialized - URL: {self.epg_url}{epg2_info}{mapping_info}, "
                         f"Time tolerance: {self.time_tolerance_minutes} minutes")
 
     def setup_logging(self):
@@ -59,6 +74,164 @@ class EPGCacher:
             ]
         )
         self.logger = logging.getLogger('EPGCacher')
+
+    def load_channel_mapping(self) -> Dict[str, str]:
+        """
+        Load channel mapping from CSV file.
+        
+        Returns:
+            Dictionary mapping EPG1 channel IDs to EPG2 channel IDs
+        """
+        mapping = {}
+        
+        if not os.path.exists(self.channel_mapping_file):
+            self.logger.info(f"No channel mapping file found at {self.channel_mapping_file}")
+            return mapping
+        
+        try:
+            with open(self.channel_mapping_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                header = next(reader, None)  # Skip header if present
+                
+                for row in reader:
+                    if len(row) >= 2:
+                        epg1_channel = row[0].strip()
+                        epg2_channel = row[1].strip()
+                        if epg1_channel and epg2_channel:
+                            mapping[epg1_channel] = epg2_channel
+            
+            self.logger.info(f"Loaded {len(mapping)} channel mappings from {self.channel_mapping_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading channel mapping file: {e}")
+        
+        return mapping
+
+    def update_channel_mapping_with_epg1_channels(self, epg_root: ET.Element):
+        """
+        Update the channel mapping CSV file with channel IDs from EPG1 source.
+        Only adds channels if the CSV file is "empty" (just has header row).
+        
+        Args:
+            epg_root: Parsed XML root from EPG1 source
+        """
+        try:
+            # Check if CSV file exists and has data beyond header
+            csv_has_data = False
+            if os.path.exists(self.channel_mapping_file):
+                with open(self.channel_mapping_file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f)
+                    header = next(reader, None)  # Skip header
+                    
+                    # Check if there are any data rows with both columns filled
+                    for row in reader:
+                        if len(row) >= 2 and row[0].strip() and row[1].strip():
+                            csv_has_data = True
+                            break
+            
+            # If CSV already has mapping data, don't modify it
+            if csv_has_data:
+                self.logger.info("Channel mapping CSV already has data, skipping auto-population")
+                return
+            
+            # Extract channel IDs from EPG1
+            channel_ids = []
+            for channel in epg_root.findall('.//channel'):
+                channel_id = channel.get('id', '').strip()
+                if channel_id:
+                    channel_ids.append(channel_id)
+            
+            if not channel_ids:
+                self.logger.info("No channel IDs found in EPG1, skipping CSV update")
+                return
+            
+            # Write/update the CSV file with EPG1 channel IDs
+            with open(self.channel_mapping_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Write header
+                writer.writerow(['EPG1_Channel_ID', 'EPG2_Channel_ID'])
+                
+                # Write channel IDs with empty EPG2 column
+                for channel_id in channel_ids:
+                    writer.writerow([channel_id, ''])
+            
+            self.logger.info(f"Updated channel mapping CSV with {len(channel_ids)} channels from EPG1")
+            
+        except Exception as e:
+            self.logger.error(f"Error updating channel mapping CSV: {e}")
+
+    def extract_epg2_channels_to_csv(self, epg2_root: ET.Element):
+        """
+        Extract unique channel IDs from EPG2 and save them to others.csv.
+        
+        Args:
+            epg2_root: Parsed XML root from EPG2 source
+        """
+        try:
+            # Extract unique channel IDs from EPG2
+            channel_ids = set()
+            
+            # Get channels from channel elements
+            for channel in epg2_root.findall('.//channel'):
+                channel_id = channel.get('id', '').strip()
+                if channel_id:
+                    channel_ids.add(channel_id)
+            
+            # Also get channels from programme elements (in case channels are only in programmes)
+            for programme in epg2_root.findall('.//programme'):
+                channel_id = programme.get('channel', '').strip()
+                if channel_id:
+                    channel_ids.add(channel_id)
+            
+            if not channel_ids:
+                self.logger.info("No channel IDs found in EPG2")
+                return
+            
+            # Sort for consistent output
+            sorted_channels = sorted(list(channel_ids))
+            
+            # Write to others.csv
+            with open(self.others_csv_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Write header
+                writer.writerow(['EPG2_Channel_ID', 'Channel_Name'])
+                
+                # Write channel IDs with empty name column
+                for channel_id in sorted_channels:
+                    # Try to get channel name from channel element
+                    channel_name = ""
+                    for channel in epg2_root.findall('.//channel'):
+                        if channel.get('id') == channel_id:
+                            display_name = channel.find('display-name')
+                            if display_name is not None and display_name.text:
+                                channel_name = display_name.text.strip()
+                                break
+                    
+                    writer.writerow([channel_id, channel_name])
+            
+            self.logger.info(f"Extracted {len(sorted_channels)} unique EPG2 channels to {self.others_csv_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting EPG2 channels to CSV: {e}")
+
+    def create_sample_channel_mapping(self):
+        """
+        Create an empty channel mapping CSV file with just the header row.
+        """
+        if os.path.exists(self.channel_mapping_file):
+            return  # Don't overwrite existing file
+        
+        try:
+            with open(self.channel_mapping_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['EPG1_Channel_ID', 'EPG2_Channel_ID'])
+            
+            self.logger.info(f"Created empty channel mapping file: {self.channel_mapping_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating channel mapping file: {e}")
 
     def sanitize_utf8(self, text: str) -> str:
         """
@@ -141,6 +314,231 @@ class EPGCacher:
         except Exception as e:
             self.logger.error(f"Unexpected error fetching EPG data: {e}")
             return None
+
+    def fetch_epg2_data(self) -> Optional[str]:
+        """
+        Fetch EPG data from the second EPG URL (for images).
+        Supports both regular XML files and gzip compressed files.
+        
+        Returns:
+            Raw EPG XML data as string from second URL, None if fetch failed or URL not configured
+        """
+        if not self.epg2_url:
+            self.logger.info("No EPG2_URL configured, skipping image EPG fetch")
+            return None
+            
+        try:
+            self.logger.info(f"Fetching image EPG data from {self.epg2_url}")
+            
+            response = self.session.get(self.epg2_url, timeout=60)
+            response.raise_for_status()
+            
+            content = response.content
+            
+            # Check if content is gzipped
+            if content.startswith(b'\x1f\x8b'):
+                self.logger.info("Detected gzipped content, decompressing...")
+                try:
+                    # Decompress gzip content
+                    content = gzip.decompress(content)
+                    
+                    # If the decompressed content is still an archive (like ZIP), handle it
+                    if content.startswith(b'PK'):
+                        self.logger.info("Detected ZIP archive inside gzip, extracting...")
+                        with tempfile.NamedTemporaryFile() as temp_file:
+                            temp_file.write(content)
+                            temp_file.flush()
+                            
+                            with zipfile.ZipFile(temp_file.name, 'r') as zip_file:
+                                # Find the first XML file in the archive
+                                xml_files = [name for name in zip_file.namelist() if name.lower().endswith('.xml')]
+                                
+                                if xml_files:
+                                    xml_filename = xml_files[0]  # Use the first XML file found
+                                    self.logger.info(f"Extracting XML file: {xml_filename}")
+                                    content = zip_file.read(xml_filename)
+                                else:
+                                    self.logger.error("No XML files found in the ZIP archive")
+                                    return None
+                    
+                except gzip.BadGzipFile:
+                    self.logger.warning("Failed to decompress as gzip, treating as regular content")
+                    content = response.content
+                except zipfile.BadZipFile:
+                    self.logger.warning("Failed to extract ZIP archive, using decompressed content as is")
+                except Exception as e:
+                    self.logger.error(f"Error processing compressed content: {e}")
+                    return None
+            
+            # Handle content encoding
+            try:
+                # Try to detect encoding
+                encoding = response.encoding or 'utf-8'
+                
+                # If we have bytes, decode them
+                if isinstance(content, bytes):
+                    try:
+                        text_content = content.decode(encoding)
+                    except UnicodeDecodeError:
+                        self.logger.warning(f"Encoding {encoding} failed for EPG2, falling back to UTF-8")
+                        text_content = content.decode('utf-8', errors='replace')
+                else:
+                    text_content = content
+                    
+            except Exception as e:
+                self.logger.error(f"Error decoding content: {e}")
+                return None
+            
+            # Sanitize the content - ensure text_content is a string
+            if isinstance(text_content, str):
+                sanitized_content = self.sanitize_utf8(text_content)
+            else:
+                sanitized_content = self.sanitize_utf8(str(text_content))
+            
+            self.logger.info(f"Successfully processed image EPG data: {len(sanitized_content)} characters")
+            return sanitized_content
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Network error fetching image EPG data: {e}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error fetching image EPG data: {e}")
+            return None
+
+    def extract_programme_images(self, epg2_root: ET.Element) -> Dict[str, List[str]]:
+        """
+        Extract programme images from the second EPG.
+        
+        Args:
+            epg2_root: Parsed XML root from second EPG
+            
+        Returns:
+            Dictionary mapping programme identifiers to image URLs
+        """
+        image_map = {}
+        
+        for programme in epg2_root.findall('.//programme'):
+            # Build programme identifier from channel and time
+            channel = programme.get('channel', '')
+            start = programme.get('start', '')
+            
+            if channel and start:
+                prog_id = f"{channel}_{start}"
+                
+                # Extract images from various elements
+                images = []
+                
+                # Look for icon elements
+                for icon in programme.findall('.//icon'):
+                    src = icon.get('src', '')
+                    if src:
+                        images.append(src)
+                
+                # Look for image elements
+                for img in programme.findall('.//image'):
+                    if img.text:
+                        images.append(img.text.strip())
+                
+                # Look for poster/thumbnail attributes or elements
+                for poster in programme.findall('.//poster'):
+                    if poster.text:
+                        images.append(poster.text.strip())
+                
+                for thumb in programme.findall('.//thumbnail'):
+                    if thumb.text:
+                        images.append(thumb.text.strip())
+                
+                if images:
+                    image_map[prog_id] = images
+                    self.logger.debug(f"Found {len(images)} images for programme {prog_id}")
+        
+        self.logger.info(f"Extracted images for {len(image_map)} programmes from second EPG")
+        return image_map
+
+    def merge_programme_images(self, main_root: ET.Element, image_map: Dict[str, List[str]]) -> int:
+        """
+        Merge images from the second EPG into the main EPG programmes using channel mapping.
+        
+        Args:
+            main_root: Main EPG XML root element
+            image_map: Dictionary mapping programme identifiers to image URLs
+            
+        Returns:
+            Number of programmes that received images
+        """
+        merged_count = 0
+        
+        if not self.channel_mapping:
+            self.logger.info("No channel mappings available for image merging")
+            return merged_count
+        
+        # Loop through every assigned EPG1 channel id -> EPG2 channel id mapping
+        for epg1_channel, epg2_channel in self.channel_mapping.items():
+            if not epg2_channel:  # Skip empty EPG2 mappings
+                continue
+                
+            self.logger.debug(f"Processing channel mapping: {epg1_channel} -> {epg2_channel}")
+            
+            # Find all programmes for this EPG1 channel
+            epg1_programmes = main_root.findall(f".//programme[@channel='{epg1_channel}']")
+            
+            # Loop through every programme in this channel
+            for epg1_programme in epg1_programmes:
+                epg1_start = epg1_programme.get('start', '')
+                if not epg1_start:
+                    continue
+                
+                epg1_start_time = self.parse_datetime(epg1_start)
+                if not epg1_start_time:
+                    continue
+                
+                # Find matching programme in EPG2 based on start time
+                matched_images = None
+                tolerance = timedelta(minutes=self.time_tolerance_minutes)
+                
+                # Search through EPG2 programmes for this channel
+                for prog_id, images in image_map.items():
+                    # Check if this image belongs to the mapped EPG2 channel
+                    if not prog_id.startswith(f"{epg2_channel}_"):
+                        continue
+                    
+                    # Extract start time from prog_id
+                    parts = prog_id.split('_', 1)
+                    if len(parts) >= 2:
+                        epg2_start_str = parts[1]
+                        epg2_start_time = self.parse_datetime(epg2_start_str)
+                        
+                        if epg2_start_time:
+                            # Normalize for comparison
+                            epg1_start_naive = epg1_start_time.replace(tzinfo=None) if epg1_start_time.tzinfo else epg1_start_time
+                            epg2_start_naive = epg2_start_time.replace(tzinfo=None) if epg2_start_time.tzinfo else epg2_start_time
+                            
+                            time_diff = abs(epg1_start_naive - epg2_start_naive)
+                            if time_diff <= tolerance:
+                                matched_images = images
+                                self.logger.debug(f"Time match found: {epg1_channel}@{epg1_start} -> {epg2_channel}@{epg2_start_str} (diff: {time_diff})")
+                                break
+                
+                # Add images if found
+                if matched_images:
+                    # Remove existing icon elements to avoid duplicates
+                    existing_icons = epg1_programme.findall('icon')
+                    for icon in existing_icons:
+                        epg1_programme.remove(icon)
+                    
+                    # Add new images
+                    for i, image_url in enumerate(matched_images):
+                        icon = ET.SubElement(epg1_programme, 'icon')
+                        icon.set('src', image_url)
+                        
+                        if i == 0:
+                            icon.set('width', '300')
+                            icon.set('height', '200')
+                    
+                    merged_count += 1
+                    self.logger.debug(f"Added {len(matched_images)} images to programme {epg1_channel} at {epg1_start}")
+        
+        return merged_count
 
     def backup_current_epg(self) -> bool:
         """
@@ -294,7 +692,6 @@ class EPGCacher:
             old_programmes_by_channel[channel].append(programme)
         
         # For each channel in old EPG, check for missing programmes
-        skipped_channels = 0
         for channel, old_programmes in old_programmes_by_channel.items():
             new_programmes = new_programmes_by_channel.get(channel, [])
             
@@ -306,7 +703,6 @@ class EPGCacher:
                     start_time_naive = start_time.replace(tzinfo=None) if start_time.tzinfo else start_time
                     one_day_ago = datetime.now() - timedelta(days=1)
                     if start_time_naive < one_day_ago:
-                        skipped_channels += 1
                         continue  # Skip this old programme
                 
                 # Check if this programme is missing in new EPG
@@ -325,8 +721,6 @@ class EPGCacher:
                     start_time, stop_time = self.get_programme_time_range(old_programme)
                     self.logger.info(f"Merged missing programme for channel {channel}: "
                                    f"{start_time} - {stop_time}")
-                    
-        self.logger.info(f"Skipped {skipped_channels} old programmes.")
         
         return merged_count
 
@@ -414,6 +808,12 @@ class EPGCacher:
                 self.logger.error("Failed to parse new EPG data, keeping existing file")
                 return
             
+            # Step 3.5: Update channel mapping CSV with EPG1 channels if it's empty
+            self.update_channel_mapping_with_epg1_channels(new_root)
+            
+            # Reload channel mapping in case it was updated
+            self.channel_mapping = self.load_channel_mapping()
+            
             # Step 4: If we have old EPG data, merge missing information
             merged_programmes = 0
             merged_channels = 0
@@ -437,10 +837,30 @@ class EPGCacher:
                 except Exception as e:
                     self.logger.warning(f"Could not read old EPG file for merging: {e}")
             
-            # Step 5: Save updated EPG
+            # Step 5: Fetch and merge images from second EPG if configured
+            merged_images = 0
+            if self.epg2_url:
+                epg2_content = self.fetch_epg2_data()
+                if epg2_content:
+                    epg2_root = self.parse_epg_xml(epg2_content)
+                    if epg2_root is not None:
+                        # Extract EPG2 channels to others.csv for web UI
+                        self.extract_epg2_channels_to_csv(epg2_root)
+                        
+                        # Extract and merge images
+                        image_map = self.extract_programme_images(epg2_root)
+                        merged_images = self.merge_programme_images(new_root, image_map)
+                        self.logger.info(f"Added images to {merged_images} programmes from second EPG")
+                    else:
+                        self.logger.warning("Could not parse second EPG file for images")
+                else:
+                    self.logger.warning("Could not fetch second EPG for images")
+            
+            # Step 6: Save updated EPG
             if self.save_epg_file(new_root):
+                image_info = f", {merged_images} images" if merged_images > 0 else ""
                 self.logger.info(f"EPG update completed successfully. "
-                               f"Merged: {merged_channels} channels, {merged_programmes} programmes")
+                               f"Merged: {merged_channels} channels, {merged_programmes} programmes{image_info}")
             else:
                 self.logger.error("Failed to save updated EPG file")
                 

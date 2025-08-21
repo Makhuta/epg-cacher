@@ -2,6 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    nginx \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --upgrade pip
 
 # Copy only requirements first (leverages Docker cache for faster builds)
@@ -16,5 +21,12 @@ COPY . /app/
 # Optional default environment variable
 ENV INTERVAL=3600
 
-# Run the script
-CMD ["python", "epg_cacher.py"]
+EXPOSE 8000
+
+COPY nginx.conf /etc/nginx/nginx.conf
+
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Entry point to run migrations and start Django server
+CMD ["/app/entrypoint.sh"]
