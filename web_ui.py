@@ -79,11 +79,22 @@ class ChannelMappingManager:
             return False
     
     def get_stats(self) -> Dict[str, int]:
-        """Get statistics about channel mappings."""
+        """Get statistics about channel mappings based on both mapping file and EPG1 channels."""
         mappings = self.load_mappings()
+        epg1_channels = self.load_epg1_channels()
         
-        total_channels = len(mappings)
+        # Get all unique EPG1 channel IDs from both sources
+        mapped_channel_ids = {m['epg1_channel'] for m in mappings if m['epg1_channel']}
+        epg1_channel_ids = {ch['id'] for ch in epg1_channels}
+        all_channel_ids = mapped_channel_ids.union(epg1_channel_ids)
+        
+        # Count channels that have actual mappings (both EPG1 and EPG2)
         mapped_channels = len([m for m in mappings if m['epg1_channel'] and m['epg2_channel']])
+        
+        # Total is all unique channels from both sources
+        total_channels = len(all_channel_ids)
+        
+        # Unmapped is total minus mapped
         unmapped_channels = total_channels - mapped_channels
         
         return {
@@ -159,7 +170,7 @@ def mappings():
     mappings = mapping_manager.load_mappings()
     epg1_channels = mapping_manager.load_epg1_channels()
     epg2_channels = mapping_manager.load_epg2_channels()   
-     
+
     # Filter out EPG1 channels that are already mapped
     existing_epg1_channels = {mapping['epg1_channel'] for mapping in mappings if mapping['epg1_channel']}
     available_epg1_channels = [channel for channel in epg1_channels if channel['id'] not in existing_epg1_channels]
