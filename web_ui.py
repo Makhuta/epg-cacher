@@ -96,17 +96,61 @@ class ChannelMappingManager:
         # Count channels that have actual mappings (both EPG1 and EPG2)
         mapped_channels = len([m for m in mappings if m['epg1_channel'] and m['epg2_channel']])
         
+        # Count pseudo-unmapped channels (mapped but no EPG2)
+        pseudo_unmapped_channels = len([m for m in mappings if m['epg1_channel'] and not m['epg2_channel']])
+        
         # Total is all unique channels from both sources
         total_channels = len(all_channel_ids)
         
         # Unmapped is total minus mapped
         unmapped_channels = total_channels - mapped_channels
         
+        # Calculate percentages
+        coverage_percentage = (mapped_channels / total_channels * 100) if total_channels > 0 else 0.0
+        pseudo_unmapped_percentage = (pseudo_unmapped_channels / total_channels * 100) if total_channels > 0 else 0.0
+        total_completion_percentage = ((mapped_channels + pseudo_unmapped_channels) / total_channels * 100) if total_channels > 0 else 0.0
+        
         return {
             'total': total_channels,
             'mapped': mapped_channels,
-            'unmapped': unmapped_channels
+            'unmapped': unmapped_channels,
+            'pseudo_unmapped': pseudo_unmapped_channels,
+            'coverage_percentage': round(float(coverage_percentage), 1),
+            'pseudo_unmapped_percentage': round(float(pseudo_unmapped_percentage), 1),
+            'total_completion_percentage': round(float(total_completion_percentage), 1)
         }
+    
+    def get_unmapped_channels(self) -> List[Dict[str, str]]:
+        """Get channels from EPG1 that are not in the mapping file at all."""
+        mappings = self.load_mappings()
+        epg1_channels = self.load_epg1_channels()
+        
+        # Get channel IDs that are already in mappings
+        mapped_channel_ids = {m['epg1_channel'] for m in mappings if m['epg1_channel']}
+        
+        # Return EPG1 channels that are not in mappings at all
+        unmapped = [ch for ch in epg1_channels if ch['id'] not in mapped_channel_ids]
+        
+        return unmapped
+    
+    def get_pseudo_unmapped_channels(self) -> List[Dict[str, str]]:
+        """Get channels that are in mapping file but have no EPG2 channel assigned."""
+        mappings = self.load_mappings()
+        epg1_channels = self.load_epg1_channels()
+        
+        # Create a lookup for EPG1 channel names
+        epg1_lookup = {ch['id']: ch['name'] for ch in epg1_channels}
+        
+        # Find mappings with EPG1 but no EPG2
+        pseudo_unmapped = []
+        for mapping in mappings:
+            if mapping['epg1_channel'] and not mapping['epg2_channel']:
+                pseudo_unmapped.append({
+                    'id': mapping['epg1_channel'],
+                    'name': epg1_lookup.get(mapping['epg1_channel'], mapping['epg1_channel'])
+                })
+        
+        return pseudo_unmapped
     
     def load_epg1_channels(self) -> List[Dict[str, str]]:
         """Load EPG1 channels from channels_epg1.csv file."""
@@ -193,7 +237,12 @@ def clear_large_session():
 def index():
     """Main dashboard showing channel mapping overview."""
     stats = mapping_manager.get_stats()
-    return render_template('index.html', stats=stats)
+    unmapped_channels = mapping_manager.get_unmapped_channels()
+    pseudo_unmapped_channels = mapping_manager.get_pseudo_unmapped_channels()
+    return render_template('index.html', 
+                         stats=stats, 
+                         unmapped_channels=unmapped_channels,
+                         pseudo_unmapped_channels=pseudo_unmapped_channels)
 
 @app.route('/mappings')
 def mappings():

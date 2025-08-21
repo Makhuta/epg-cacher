@@ -91,12 +91,111 @@
                         {% if stats.total > 0 %}Active{% else %}Empty{% endif %}
                     </span>
                 </div>
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="small">Coverage:</span>
-                    <span class="text-{% if stats.total > 0 %}success{% else %}secondary{% endif %}">
-                        {% if stats.total > 0 %}{{ ((stats.mapped / stats.total) * 100)|round(1) }}%{% else %}0%{% endif %}
+                    <span class="text-{% if stats.coverage_percentage > 0 %}success{% else %}secondary{% endif %}">
+                        {{ stats.coverage_percentage }}%
                     </span>
                 </div>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small">Pseudo-Unmapped:</span>
+                    <span class="text-{% if stats.pseudo_unmapped_percentage > 0 %}info{% else %}secondary{% endif %}">
+                        {{ stats.pseudo_unmapped_percentage }}%
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="small"><strong>Total %:</strong></span>
+                    <span class="text-{% if stats.total_completion_percentage > 0 %}primary{% else %}secondary{% endif %}">
+                        <strong>{{ stats.total_completion_percentage }}%</strong>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Unmapped and Pseudo-Unmapped Channels -->
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-exclamation-triangle me-2 text-warning"></i>
+                    Unmapped Channels
+                    <span class="badge bg-warning text-dark">{{ unmapped_channels|length }}</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if unmapped_channels %}
+                    <p class="card-text text-secondary small mb-3">
+                        EPG1 channels not in mapping file at all:
+                    </p>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Channel ID</th>
+                                    <th>Channel Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for channel in unmapped_channels %}
+                                <tr>
+                                    <td><code class="text-warning">{{ channel.id }}</code></td>
+                                    <td>{{ channel.name if channel.name != channel.id else '<em class="text-muted">No name</em>' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-3">
+                        <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                        <p class="text-secondary mb-0">All EPG1 channels are in mapping file</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-question-circle me-2 text-info"></i>
+                    Pseudo-Unmapped Channels
+                    <span class="badge bg-info">{{ pseudo_unmapped_channels|length }}</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if pseudo_unmapped_channels %}
+                    <p class="card-text text-secondary small mb-3">
+                        Channels mapped but without EPG2 assignment:
+                    </p>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Channel ID</th>
+                                    <th>Channel Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for channel in pseudo_unmapped_channels %}
+                                <tr>
+                                    <td><code class="text-info">{{ channel.id }}</code></td>
+                                    <td>{{ channel.name if channel.name != channel.id else '<em class="text-muted">No name</em>' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-3">
+                        <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                        <p class="text-secondary mb-0">All mapped channels have EPG2 assignments</p>
+                    </div>
+                {% endif %}
             </div>
         </div>
     </div>
