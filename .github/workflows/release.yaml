@@ -20,18 +20,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Get tag
-        id: tag
-        uses: dawidd6/action-get-tag@v1
-
       - name: Determine tag type (beta or latest)
         id: tag_type
         run: |
           if ${{ github.event.release.prerelease }}; then
-            echo "tag=${{ steps.tag.outputs.tag }}-beta" >> $GITHUB_ENV
+            echo "tag=${{ github.event.release.tag_name }}-beta" >> $GITHUB_ENV
             echo "tag_name=beta" >> $GITHUB_ENV
           else
-            echo "tag=${{ steps.tag.outputs.tag }}" >> $GITHUB_ENV
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
             echo "tag_name=latest" >> $GITHUB_ENV
           fi
 
@@ -48,10 +44,8 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          # list of Docker images to use as base name for tags
           images: |
             ghcr.io/${{ steps.string.outputs.lowercase }}/${{ env.IMAGE_NAME }}
-          # generate Docker tags based on the following events/attributes
           tags: |
             type=raw,value=${{ env.tag_name }}
             type=raw,value=${{ env.tag }}
