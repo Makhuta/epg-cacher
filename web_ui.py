@@ -6,8 +6,10 @@ Main entry point for EPG Channel Mapping Web UI
 import csv
 import os
 import logging
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'epg-cacher-secret-key-change-in-production')
@@ -27,6 +29,7 @@ os.makedirs(output_dir, exist_ok=True)
 CHANNEL_MAPPING_FILE = os.path.join(output_dir, 'channel_mapping.csv')
 CHANNELS_EPG1_FILE = os.path.join(output_dir, 'channels_epg1.csv')
 CHANNELS_EPG2_FILE = os.path.join(output_dir, 'channels_epg2.csv')
+EPG_FILE = os.path.join(output_dir, 'epg.xml')
 
 class ChannelMappingManager:
     """Manages channel mapping operations for the web UI."""
@@ -203,6 +206,149 @@ class ChannelMappingManager:
             logger.error(f"Error loading EPG2 channels: {e}")
             
         return epg2_channels
+    
+    def parse_datetime(self, datetime_str: str) -> Optional[datetime]:
+        """Parse XMLTV datetime format (YYYYMMDDHHMMSS +TTTT)."""
+        try:
+            # XMLTV format: 20240821120000 +0000
+            if ' ' in datetime_str:
+                dt_part = datetime_str.split(' ')[0]
+            else:
+                dt_part = datetime_str
+            
+            # Parse the main datetime part
+            if len(dt_part) >= 14:
+                return datetime.strptime(dt_part[:14], '%Y%m%d%H%M%S')
+            elif len(dt_part) >= 12:
+                return datetime.strptime(dt_part[:12], '%Y%m%d%H%M')
+            elif len(dt_part) >= 8:
+                return datetime.strptime(dt_part[:8], '%Y%m%d')
+            else:
+                return None
+        except ValueError:
+            return None
+    
+    def load_epg_data(self) -> Optional[ET.Element]:
+        """Load and parse EPG XML data."""
+        if not os.path.exists(EPG_FILE):
+            return None
+        
+        try:
+            tree = ET.parse(EPG_FILE)
+            return tree.getroot()
+        except ET.ParseError as e:
+            logger.error(f"Error parsing EPG XML: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error loading EPG file: {e}")
+            return None
+    
+    def get_epg_channels(self) -> List[Dict[str, str]]:
+        """Get channels from EPG data."""
+        epg_root = self.load_epg_data()
+        if epg_root is None:
+            return []
+        
+        channels = []
+        channel_ids_seen = set()
+        
+        # Get channels from channel elements
+        for channel in epg_root.findall('.//channel'):
+            channel_id = channel.get('id', '').strip()
+            if channel_id and channel_id not in channel_ids_seen:
+                channel_ids_seen.add(channel_id)
+                
+                # Get channel name from display-name
+                channel_name = channel_id
+                display_name = channel.find('display-name')
+                if display_name is not None and display_name.text:
+                    channel_name = display_name.text.strip()
+                
+                channels.append({
+                    'id': channel_id,
+                    'name': channel_name
+                })
+        
+        # Also get channels from programme elements if not in channel list
+        for programme in epg_root.findall('.//programme'):
+            channel_id = programme.get('channel', '').strip()
+            if channel_id and channel_id not in channel_ids_seen:
+                channel_ids_seen.add(channel_id)
+                channels.append({
+                    'id': channel_id,
+                    'name': channel_id
+                })
+        
+        return sorted(channels, key=lambda x: x['name'].lower())
+    
+    def get_epg_programmes(self, start_time: datetime, hours: int = 12) -> Dict[str, List[Dict]]:
+        """Get EPG programmes for a specific time window."""
+        epg_root = self.load_epg_data()
+        if epg_root is None:
+            return {}
+        
+        end_time = start_time + timedelta(hours=hours)
+        programmes_by_channel = {}
+        
+        for programme in epg_root.findall('.//programme'):
+            channel_id = programme.get('channel', '').strip()
+            if not channel_id:
+                continue
+            
+            # Parse programme times
+            start_str = programme.get('start', '')
+            stop_str = programme.get('stop', '')
+            
+            prog_start = self.parse_datetime(start_str)
+            prog_stop = self.parse_datetime(stop_str)
+            
+            if not prog_start:
+                continue
+            
+            # Check if programme overlaps with our time window
+            if prog_stop and prog_stop <= start_time:
+                continue  # Programme ends before our window
+            if prog_start >= end_time:
+                continue  # Programme starts after our window
+            
+            # Get programme details
+            title = ""
+            title_elem = programme.find('title')
+            if title_elem is not None and title_elem.text:
+                title = title_elem.text.strip()
+            
+            desc = ""
+            desc_elem = programme.find('desc')
+            if desc_elem is not None and desc_elem.text:
+                desc = desc_elem.text.strip()
+
+            # Get programme icon
+            icon_url = ""
+            icon_elem = programme.find('icon')
+            if icon_elem is not None:
+                icon_url = icon_elem.get('src', '').strip()
+            
+            # Add programme to channel
+            
+            # Add programme to channel
+            if channel_id not in programmes_by_channel:
+                programmes_by_channel[channel_id] = []
+            
+            programmes_by_channel[channel_id].append({
+                'start': prog_start,
+                'stop': prog_stop,
+                'start_str': start_str,
+                'stop_str': stop_str,
+                'title': title or 'No Title',
+                'desc': desc,
+                'icon': icon_url
+            })
+        
+        # Sort programmes by start time for each channel
+        for channel_id in programmes_by_channel:
+            programmes_by_channel[channel_id].sort(key=lambda x: x['start'])
+        
+        return programmes_by_channel
 
 # Initialize manager
 mapping_manager = ChannelMappingManager()
@@ -353,6 +499,94 @@ def api_epg2_channels():
     """API endpoint for EPG2 channels."""
     epg2_channels = mapping_manager.load_epg2_channels()
     return jsonify(epg2_channels)
+
+@app.route('/epg')
+def epg_viewer():
+    """EPG viewer page."""
+    # Get EPG channels - load all available data for client-side caching
+    channels = mapping_manager.get_epg_channels()
+    
+    return render_template('epg_viewer.html', channels=channels)
+
+@app.route('/api/epg_data')
+def api_epg_data():
+    """API endpoint to get full EPG data for client-side caching."""
+    epg_root = mapping_manager.load_epg_data()
+    if epg_root is None:
+        return jsonify({'programmes': {}, 'error': 'No EPG data available'})
+    
+    programmes_json = {}
+    channels = []
+    
+    # Get channels first
+    for channel in epg_root.findall('.//channel'):
+        channel_id = channel.get('id', '').strip()
+        if channel_id:
+            channel_name = channel_id
+            display_name = channel.find('display-name')
+            if display_name is not None and display_name.text:
+                channel_name = display_name.text.strip()
+            
+            channels.append({
+                'id': channel_id,
+                'name': channel_name
+            })
+    
+    # Get programmes
+    
+    for programme in epg_root.findall('.//programme'):
+        channel_id = programme.get('channel', '').strip()
+        if not channel_id:
+            continue
+        
+        # Parse programme times
+        start_str = programme.get('start', '')
+        stop_str = programme.get('stop', '')
+        
+        prog_start = mapping_manager.parse_datetime(start_str)
+        prog_stop = mapping_manager.parse_datetime(stop_str)
+        
+        if not prog_start:
+            continue
+        
+        # Get programme details
+        title = ""
+        title_elem = programme.find('title')
+        if title_elem is not None and title_elem.text:
+            title = title_elem.text.strip()
+        
+        desc = ""
+        desc_elem = programme.find('desc')
+        if desc_elem is not None and desc_elem.text:
+            desc = desc_elem.text.strip()
+        
+        # Get programme icon
+        icon_url = ""
+        icon_elem = programme.find('icon')
+        if icon_elem is not None:
+            icon_url = icon_elem.get('src', '').strip()
+        
+        # Add programme to channel
+        if channel_id not in programmes_json:
+            programmes_json[channel_id] = []
+        
+        programmes_json[channel_id].append({
+            'start': prog_start.isoformat(),
+            'stop': prog_stop.isoformat() if prog_stop else None,
+            'title': title or 'No Title',
+            'desc': desc,
+            'icon': icon_url
+        })
+    
+    # Sort programmes by start time for each channel
+    for channel_id in programmes_json:
+        programmes_json[channel_id].sort(key=lambda x: x['start'])
+    
+    return jsonify({
+        'programmes': programmes_json,
+        'channels': channels,
+        'source': 'xml'
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)

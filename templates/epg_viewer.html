@@ -1,0 +1,796 @@
+{% extends "base.html" %}
+
+{% block title %}EPG Viewer - EPG Channel Mapping Manager{% endblock %}
+
+{% block content %}
+<style>
+    .epg-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 200px);
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        background-color: var(--bs-dark);
+        margin-bottom: 2em;
+    }
+    
+    /* FIXED LAYOUT - Two-column design with synchronized scrolling */
+    .epg-main-grid {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+    }
+    
+    /* Fixed left column for channel names - never scrolls horizontally */
+    .epg-channels-column {
+        width: 200px;
+        min-width: 200px;
+        background-color: var(--bs-secondary-bg);
+        border-right: 1px solid var(--bs-border-color);
+        display: flex;
+        z-index: 51;
+        flex-direction: column;
+        flex-shrink: 0;
+    }
+    
+    .channel-name-header {
+        height: 50px;
+        padding: 0.75rem;
+        background-color: var(--bs-primary);
+        color: white;
+        font-weight: bold;
+        text-align: center;
+        border-bottom: 1px solid var(--bs-border-color);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .channels-list {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .channels-list::-webkit-scrollbar { 
+        display: none;
+    }
+    
+    .channel-name {
+        height: 60px;
+        min-height: 60px;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        background-color: var(--bs-secondary-bg);
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+    }
+    
+    .channel-name:hover {
+        background-color: var(--bs-secondary);
+    }
+    
+    .channel-info {
+        width: 100%;
+        min-width: 0;
+    }
+    
+    .channel-name-text {
+        font-size: 0.85rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 0.25rem;
+        line-height: 1.2;
+    }
+    
+    .channel-id-text {
+        font-size: 0.7rem;
+        color: var(--bs-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1;
+    }
+    
+    /* Right column with time header and programme content */
+    .epg-content-column {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        min-width: 0;
+    }
+    
+    .epg-time-header {
+        height: 50px;
+        background-color: var(--bs-secondary-bg);
+        border-bottom: 1px solid var(--bs-border-color);
+        overflow: hidden;
+        position: relative;
+        flex-shrink: 0;
+    }
+    
+    .time-slots-header {
+        display: flex;
+        height: 100%;
+        transition: transform 0.1s ease-out;
+    }
+    
+    .time-slot-header {
+        min-width: 120px;
+        height: 100%;
+        padding: 0.75rem;
+        text-align: center;
+        border-right: 1px solid var(--bs-border-color);
+        background-color: var(--bs-info);
+        color: white;
+        font-weight: bold;
+        white-space: nowrap;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .epg-content {
+        flex: 1;
+        overflow: auto;
+        position: relative;
+    }
+    
+    .epg-row {
+        height: 60px;
+        min-height: 60px;
+        border-bottom: 1px solid var(--bs-border-color);
+        position: relative;
+        display: flex;
+    }
+    
+    .epg-row:hover {
+        background-color: var(--bs-secondary-bg);
+    }
+    
+    .programmes-container {
+        display: flex;
+        flex: 1;
+        position: relative;
+        min-height: 60px;
+        width: 100%;
+    }
+    
+    .programme {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.25rem;
+        margin: 2px;
+        padding: 0.5rem;
+        background-color: var(--bs-primary-bg-subtle);
+        cursor: pointer;
+        transition: all 0.2s;
+        overflow: hidden;
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        display: flex;
+        align-items: center;
+        min-width: 80px;
+    }
+    
+    .programme:hover {
+        background-color: var(--bs-info);
+        color: white;
+        z-index: 5;
+        box-shadow: 0 0 10px rgba(13, 110, 253, 0.5);
+        transform: scale(1.02);
+    }
+    
+    .programme-title {
+        font-weight: bold;
+        font-size: 0.875rem;
+        margin-bottom: 0.25rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .programme-time {
+        font-size: 0.75rem;
+        color: var(--bs-secondary);
+        white-space: nowrap;
+    }
+    
+    .programme-content {
+        display: flex;
+        align-items: center;
+        height: 100%;
+        min-width: 0;
+        flex: 1;
+    }
+    
+    .programme-icon {
+        width: 24px;
+        height: 24px;
+        margin-right: 0.5rem;
+        border-radius: 0.25rem;
+        object-fit: cover;
+        flex-shrink: 0;
+    }
+    
+    .programme-text {
+        min-width: 0;
+        flex: 1;
+    }
+    
+    /* FIXED: Current time line that moves properly with scroll */
+    .current-time-line {
+        position: absolute;
+        top: 50px; /* Start after time header */
+        bottom: 0;
+        width: 2px;
+        background-color: var(--bs-danger);
+        z-index: 50;
+        box-shadow: 0 0 5px var(--bs-danger);
+        pointer-events: none;
+        transition: left 0.1s ease-out;
+    }
+    
+    .time-navigation {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+    
+    .no-epg-message {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 400px;
+        text-align: center;
+        color: var(--bs-secondary);
+    }
+    
+    @media (max-width: 768px) {
+        .epg-channels-column {
+            width: 150px;
+            min-width: 150px;
+        }
+        
+        .time-slot-header {
+            min-width: 100px;
+        }
+    }
+    
+    /* Scrollbar styling */
+    .epg-content::-webkit-scrollbar,
+    .channels-list::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    .epg-content::-webkit-scrollbar-track,
+    .channels-list::-webkit-scrollbar-track {
+        background: var(--bs-dark);
+    }
+    
+    .epg-content::-webkit-scrollbar-thumb,
+    .channels-list::-webkit-scrollbar-thumb {
+        background: var(--bs-secondary);
+        border-radius: 4px;
+    }
+</style>
+
+<div class="row mb-4">
+    <div class="col">
+        <h2>
+            <i class="fas fa-tv me-2 text-primary"></i>
+            EPG Viewer
+        </h2>
+        <p class="text-secondary">Browse TV program schedules in a time-based grid layout</p>
+    </div>
+</div>
+
+<!-- Time Navigation Controls -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="time-navigation">
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-outline-primary btn-sm" onclick="navigateTime(-12)">
+                    <i class="fas fa-backward me-1"></i> -12h
+                </button>
+                <button class="btn btn-outline-primary btn-sm" onclick="navigateTime(-1)">
+                    <i class="fas fa-step-backward me-1"></i> -1h
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="goToNow()">
+                    <i class="fas fa-clock me-1"></i> Now
+                </button>
+                <button class="btn btn-outline-primary btn-sm" onclick="navigateTime(1)">
+                    <i class="fas fa-step-forward me-1"></i> +1h
+                </button>
+                <button class="btn btn-outline-primary btn-sm" onclick="navigateTime(12)">
+                    <i class="fas fa-forward me-1"></i> +12h
+                </button>
+            </div>
+            
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="changeZoom(-1)">
+                    <i class="fas fa-search-minus me-1"></i> Zoom Out
+                </button>
+                <span class="badge bg-secondary" id="zoomLevel">100%</span>
+                <button class="btn btn-outline-secondary btn-sm" onclick="changeZoom(1)">
+                    <i class="fas fa-search-plus me-1"></i> Zoom In
+                </button>
+            </div>
+            
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0">Start Time:</label>
+                <input type="datetime-local" id="startTimeInput" class="form-control form-control-sm" onchange="goToTime()">
+            </div>
+            
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-secondary small" id="timeRangeDisplay">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Loading EPG data...
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- No EPG Data Message (hidden by default if channels exist) -->
+<div class="card d-none" id="noEpgMessage">
+    <div class="card-body">
+        <div class="no-epg-message">
+            <div>
+                <i class="fas fa-tv fa-3x mb-3 text-secondary"></i>
+                <h4>No EPG Data Available</h4>
+                <p class="text-secondary">
+                    EPG data file not found or no channels available.<br>
+                    Please ensure the EPG XML file is present and contains channel data.
+                </p>
+                <div class="mt-3">
+                    <button class="btn btn-primary" onclick="epgViewer.loadEPGData()">
+                        <i class="fas fa-refresh me-1"></i> Retry Loading
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- EPG Grid (shown by default, hidden if no channels) -->
+<div class="epg-container" id="epgMainContainer">
+    <div class="epg-main-grid">
+        <!-- Fixed Channel Names Column -->
+        <div class="epg-channels-column">
+            <div class="channel-name-header">Channels</div>
+            <div class="channels-list" id="channelsList">
+                <!-- Channels will be loaded dynamically -->
+            </div>
+        </div>
+        
+        <!-- Scrollable Content Column -->
+        <div class="epg-content-column">
+            <!-- Time Header -->
+            <div class="epg-time-header">
+                <div class="time-slots-header" id="timeSlotsHeader">
+                    <!-- Time slots will be generated dynamically -->
+                </div>
+            </div>
+            
+            <!-- Channel Rows with Programs -->
+            <div class="epg-content" id="epgContent">
+                <!-- Programme rows will be loaded dynamically -->
+            </div>
+            
+            <!-- Current Time Line -->
+            <div class="current-time-line" id="currentTimeLine" style="display: none;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Programme Details Modal -->
+<div class="modal fade" id="programmeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="programmeModalTitle">Programme Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="programmeModalBody">
+                <!-- Programme details will be loaded here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// EPG Viewer JavaScript - Complete solution for all scrolling and positioning issues
+
+class EPGViewer {
+    constructor() {
+        this.allProgrammes = {};
+        this.channels = [];
+        this.currentStartTime = new Date();
+        this.timeSlotWidth = 120;
+        this.baseTimeSlotWidth = 120;
+        this.minutesPerSlot = 30;
+        this.totalHours = 12;
+        this.zoomLevel = 1.0;
+        
+        // DOM elements
+        this.timeSlotsHeader = null;
+        this.epgContent = null;
+        this.channelsList = null;
+        this.currentTimeLine = null;
+        
+        this.init();
+    }
+    
+    init() {
+        // Round start time to nearest hour
+        this.currentStartTime.setMinutes(0, 0, 0);
+        
+        // Get DOM elements
+        this.timeSlotsHeader = document.getElementById('timeSlotsHeader');
+        this.epgContent = document.getElementById('epgContent');
+        this.channelsList = document.getElementById('channelsList');
+        this.currentTimeLine = document.getElementById('currentTimeLine');
+        
+        // Set initial time input
+        document.getElementById('startTimeInput').value = 
+            this.currentStartTime.toISOString().slice(0, 16);
+        
+        // Setup scroll synchronization - CRITICAL FIX
+        this.setupScrollSync();
+        
+        // Load EPG data
+        this.loadEPGData();
+        
+        // Update current time line every minute
+        setInterval(() => this.updateCurrentTimeLine(), 60000);
+    }
+    
+    setupScrollSync() {
+        if (!this.epgContent || !this.timeSlotsHeader || !this.channelsList) return;
+        
+        // FIXED: Proper scroll synchronization
+        this.epgContent.addEventListener('scroll', (e) => {
+            // Sync time header horizontal scroll
+            this.timeSlotsHeader.style.transform = `translateX(-${e.target.scrollLeft}px)`;
+            
+            // Sync channel list vertical scroll
+            if (this.channelsList.scrollTop !== e.target.scrollTop) {
+                this.channelsList.scrollTop = e.target.scrollTop;
+            }
+            
+            // Update current time line position - CRITICAL FIX
+            this.updateCurrentTimeLine();
+        });
+        
+        // Sync vertical scrolling from channel list to content
+        this.channelsList.addEventListener('scroll', (e) => {
+            if (this.epgContent.scrollTop !== e.target.scrollTop) {
+                this.epgContent.scrollTop = e.target.scrollTop;
+            }
+        });
+    }
+    
+    async loadEPGData() {
+        try {
+            console.log('Loading EPG data...');
+            const response = await fetch('/api/epg_data');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('EPG Error:', data.error);
+                this.showNoEPGMessage(`Error: ${data.error}`);
+                return;
+            }
+            
+            console.log(`EPG data loaded from ${data.source || 'unknown'} source`);
+            console.log(`Found ${data.channels?.length || 0} channels`);
+            
+            this.allProgrammes = data.programmes || {};
+            this.channels = data.channels || [];
+            
+            if (this.channels.length === 0) {
+                this.showNoEPGMessage('No channels found in EPG data');
+                return;
+            }
+            
+            this.hideNoEPGMessage();
+            this.refreshDisplay();
+            
+        } catch (error) {
+            console.error('Error loading EPG data:', error);
+            this.showNoEPGMessage(`Network error: ${error.message}`);
+        }
+    }
+    
+    refreshDisplay() {
+        this.generateChannelList();
+        this.generateTimeSlots();
+        this.loadAllChannelProgrammes();
+        this.updateCurrentTimeLine();
+        this.updateTimeRangeDisplay();
+    }
+    
+    generateChannelList() {
+        this.channelsList.innerHTML = '';
+        
+        this.channels.forEach(channel => {
+            const channelDiv = document.createElement('div');
+            channelDiv.className = 'channel-name';
+            channelDiv.setAttribute('data-channel', channel.id);
+            
+            channelDiv.innerHTML = `
+                <div class="channel-info">
+                    <div class="channel-name-text" title="${channel.name}">${channel.name}</div>
+                    <div class="channel-id-text" title="${channel.id}">${channel.id}</div>
+                </div>
+            `;
+            
+            this.channelsList.appendChild(channelDiv);
+        });
+    }
+    
+    generateTimeSlots() {
+        this.timeSlotsHeader.innerHTML = '';
+        
+        let currentSlot = new Date(this.currentStartTime);
+        const slotsCount = (this.totalHours * 60) / this.minutesPerSlot;
+        
+        for (let i = 0; i < slotsCount; i++) {
+            const slotDiv = document.createElement('div');
+            slotDiv.className = 'time-slot-header';
+            slotDiv.style.minWidth = this.timeSlotWidth + 'px';
+            slotDiv.textContent = currentSlot.toLocaleTimeString([], {
+                hour: '2-digit', 
+                minute: '2-digit'
+            });
+            this.timeSlotsHeader.appendChild(slotDiv);
+            
+            currentSlot = new Date(currentSlot.getTime() + this.minutesPerSlot * 60 * 1000);
+        }
+    }
+    
+    loadAllChannelProgrammes() {
+        // Clear existing content
+        this.epgContent.innerHTML = '';
+        
+        // Create programme rows for each channel
+        this.channels.forEach(channel => {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'epg-row';
+            rowDiv.setAttribute('data-channel', channel.id);
+            
+            const programmeContainer = document.createElement('div');
+            programmeContainer.className = 'programmes-container';
+            programmeContainer.id = `programmes-${channel.id}`;
+            
+            rowDiv.appendChild(programmeContainer);
+            this.epgContent.appendChild(rowDiv);
+            
+            // Load programmes for this channel
+            this.loadChannelProgrammes(channel.id);
+        });
+    }
+    
+    loadChannelProgrammes(channelId) {
+        const container = document.getElementById(`programmes-${channelId}`);
+        if (!container) {
+            console.warn(`Container not found for channel: ${channelId}`);
+            return;
+        }
+        
+        container.innerHTML = '';
+        
+        const programmes = this.allProgrammes[channelId] || [];
+        const endTime = new Date(this.currentStartTime.getTime() + this.totalHours * 60 * 60 * 1000);
+        
+        programmes.forEach(programme => {
+            const startTime = new Date(programme.start);
+            const stopTime = new Date(programme.stop);
+            
+            // Check if programme overlaps with visible time range
+            if (stopTime > this.currentStartTime && startTime < endTime) {
+                const programmeDiv = this.createProgrammeElement(programme, startTime, stopTime);
+                if (programmeDiv) {
+                    container.appendChild(programmeDiv);
+                }
+            }
+        });
+    }
+    
+    createProgrammeElement(programme, startTime, stopTime) {
+        const programmeDiv = document.createElement('div');
+        programmeDiv.className = 'programme';
+        
+        // Calculate position and width
+        const startOffset = Math.max(0, (startTime - this.currentStartTime) / (1000 * 60));
+        const endOffset = (stopTime - this.currentStartTime) / (1000 * 60);
+        const visibleEndOffset = Math.min(endOffset, this.totalHours * 60);
+        const duration = visibleEndOffset - startOffset;
+        
+        if (duration <= 0) return null;
+        
+        const left = (startOffset / this.minutesPerSlot) * this.timeSlotWidth;
+        const width = Math.max(60, (duration / this.minutesPerSlot) * this.timeSlotWidth - 2);
+        
+        programmeDiv.style.left = left + 'px';
+        programmeDiv.style.width = width + 'px';
+        
+        // Add content with conditional icon support
+        const iconHTML = programme.icon ? `<img src="${programme.icon}" alt="${programme.title}" class="programme-icon">` : '';
+        
+        programmeDiv.innerHTML = `
+            <div class="programme-content">
+                ${iconHTML}
+                <div class="programme-text">
+                    <div class="programme-title" title="${programme.title}">${programme.title}</div>
+                    <div class="programme-time">
+                        ${startTime.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} - 
+                        ${stopTime.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add click handler for programme details
+        programmeDiv.addEventListener('click', () => this.showProgrammeDetails(programme));
+        
+        return programmeDiv;
+    }
+    
+    updateCurrentTimeLine() {
+        if (!this.currentTimeLine) return;
+        
+        const now = new Date();
+        const startTime = this.currentStartTime;
+        const endTime = new Date(startTime.getTime() + this.totalHours * 60 * 60 * 1000);
+        
+        // Check if current time is within visible range
+        if (now >= startTime && now <= endTime) {
+            const minutesFromStart = (now - startTime) / (1000 * 60);
+            const absoluteLeft = (minutesFromStart / this.minutesPerSlot) * this.timeSlotWidth;
+            
+            // FIXED: Position the line correctly accounting for scroll position  
+            const scrollLeft = this.epgContent.scrollLeft;
+            const visibleLeft = absoluteLeft - scrollLeft;
+            
+            this.currentTimeLine.style.left = visibleLeft + 'px';
+            this.currentTimeLine.style.display = 'block';
+        } else {
+            this.currentTimeLine.style.display = 'none';
+        }
+    }
+    
+    updateTimeRangeDisplay() {
+        const endTime = new Date(this.currentStartTime.getTime() + this.totalHours * 60 * 60 * 1000);
+        document.getElementById('timeRangeDisplay').innerHTML = `
+            <i class="fas fa-info-circle me-1"></i>
+            Showing ${this.totalHours} hours from ${this.currentStartTime.toLocaleDateString()} ${this.currentStartTime.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}
+        `;
+        
+        // Update zoom level display
+        const zoomPercentage = Math.round(this.zoomLevel * 100);
+        document.getElementById('zoomLevel').textContent = zoomPercentage + '%';
+    }
+    
+    showProgrammeDetails(programme) {
+        document.getElementById('programmeModalTitle').textContent = programme.title;
+        // Conditional icon for modal
+        const modalIconHTML = programme.icon ? 
+            `<div class="row mb-3">
+                <div class="col-md-12 text-center">
+                    <img src="${programme.icon}" alt="${programme.title}" class="img-fluid" style="max-height: 500px; max-width: 100%; border-radius: 0.5rem;">
+                </div>
+            </div>` : '';
+        
+        document.getElementById('programmeModalBody').innerHTML = `
+            ${modalIconHTML}
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>Start Time:</strong><br>
+                    ${new Date(programme.start).toLocaleString()}
+                </div>
+                <div class="col-md-6">
+                    <strong>End Time:</strong><br>
+                    ${new Date(programme.stop).toLocaleString()}
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-12">
+                    <strong>Category:</strong><br>
+                    ${programme.category || 'Unknown'}
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-12">
+                    <strong>Description:</strong><br>
+                    ${programme.desc || 'No description available.'}
+                </div>
+            </div>
+        `;
+        
+        const modal = new bootstrap.Modal(document.getElementById('programmeModal'));
+        modal.show();
+    }
+    
+    showNoEPGMessage(errorMessage = 'No EPG Data Available') {
+        const mainContainer = document.getElementById('epgMainContainer');
+        const noEpgMessage = document.getElementById('noEpgMessage');
+        
+        if (mainContainer) mainContainer.classList.add('d-none');
+        if (noEpgMessage) {
+            noEpgMessage.classList.remove('d-none');
+            // Update error message if provided
+            const errorTextElement = noEpgMessage.querySelector('h4');
+            if (errorTextElement) {
+                errorTextElement.textContent = errorMessage;
+            }
+        }
+    }
+    
+    hideNoEPGMessage() {
+        const mainContainer = document.getElementById('epgMainContainer');
+        const noEpgMessage = document.getElementById('noEpgMessage');
+        
+        if (mainContainer) mainContainer.classList.remove('d-none');
+        if (noEpgMessage) noEpgMessage.classList.add('d-none');
+    }
+}
+
+// Initialize EPG viewer
+let epgViewer;
+
+// Global navigation functions
+function navigateTime(hours) {
+    if (!epgViewer) return;
+    epgViewer.currentStartTime.setHours(epgViewer.currentStartTime.getHours() + hours);
+    document.getElementById('startTimeInput').value = epgViewer.currentStartTime.toISOString().slice(0, 16);
+    epgViewer.refreshDisplay();
+}
+
+function goToNow() {
+    if (!epgViewer) return;
+    epgViewer.currentStartTime = new Date();
+    epgViewer.currentStartTime.setMinutes(0, 0, 0);
+    document.getElementById('startTimeInput').value = epgViewer.currentStartTime.toISOString().slice(0, 16);
+    epgViewer.refreshDisplay();
+}
+
+function goToTime() {
+    if (!epgViewer) return;
+    const inputTime = document.getElementById('startTimeInput').value;
+    if (inputTime) {
+        epgViewer.currentStartTime = new Date(inputTime);
+        epgViewer.refreshDisplay();
+    }
+}
+
+function changeZoom(direction) {
+    if (!epgViewer) return;
+    const zoomStep = 0.25;
+    const minZoom = 0.5;
+    const maxZoom = 3.0;
+    
+    epgViewer.zoomLevel += direction * zoomStep;
+    epgViewer.zoomLevel = Math.max(minZoom, Math.min(maxZoom, epgViewer.zoomLevel));
+    
+    epgViewer.timeSlotWidth = epgViewer.baseTimeSlotWidth * epgViewer.zoomLevel;
+    epgViewer.refreshDisplay();
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    epgViewer = new EPGViewer();
+});
+</script>
+{% endblock %}
