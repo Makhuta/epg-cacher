@@ -40,7 +40,8 @@ class EPGCacher:
         self.epg_file = os.path.join(output_dir, "epg.xml")
         self.epg_old_file = os.path.join(output_dir, "epg_old.xml")
         self.channel_mapping_file = os.path.join(output_dir, "channel_mapping.csv")
-        self.others_csv_file = os.path.join(output_dir, "others.csv")
+        self.channels_epg1_file = os.path.join(output_dir, "channels_epg1.csv")
+        self.channels_epg2_file = os.path.join(output_dir, "channels_epg2.csv")
         
         # Setup logging
         self.setup_logging()
@@ -107,114 +108,120 @@ class EPGCacher:
         
         return mapping
 
-    def update_channel_mapping_with_epg1_channels(self, epg_root: ET.Element):
+    def save_epg1_channels_to_csv(self, epg_root: ET.Element):
         """
-        Update the channel mapping CSV file with channel IDs from EPG1 source.
-        Only adds channels if the CSV file is "empty" (just has header row).
+        Save EPG1 channel IDs to channels_epg1.csv.
         
         Args:
             epg_root: Parsed XML root from EPG1 source
         """
         try:
-            # Check if CSV file exists and has data beyond header
-            csv_has_data = False
-            if os.path.exists(self.channel_mapping_file):
-                with open(self.channel_mapping_file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    header = next(reader, None)  # Skip header
-                    
-                    # Check if there are any data rows with both columns filled
-                    for row in reader:
-                        if len(row) >= 2 and row[0].strip() and row[1].strip():
-                            csv_has_data = True
-                            break
-            
-            # If CSV already has mapping data, don't modify it
-            if csv_has_data:
-                self.logger.info("Channel mapping CSV already has data, skipping auto-population")
-                return
-            
             # Extract channel IDs from EPG1
-            channel_ids = []
+            channel_data = []
+            
+            # Get channels from channel elements
             for channel in epg_root.findall('.//channel'):
                 channel_id = channel.get('id', '').strip()
                 if channel_id:
-                    channel_ids.append(channel_id)
+                    # Try to get channel name from display-name element
+                    channel_name = ""
+                    display_name = channel.find('display-name')
+                    if display_name is not None and display_name.text:
+                        channel_name = display_name.text.strip()
+                    
+                    channel_data.append((channel_id, channel_name))
             
-            if not channel_ids:
-                self.logger.info("No channel IDs found in EPG1, skipping CSV update")
+            # Also get unique channels from programme elements (in case channels are only in programmes)
+            programme_channels = set()
+            for programme in epg_root.findall('.//programme'):
+                channel_id = programme.get('channel', '').strip()
+                if channel_id:
+                    programme_channels.add(channel_id)
+            
+            # Add programme channels that weren't in channel elements
+            existing_channel_ids = {ch_id for ch_id, _ in channel_data}
+            for channel_id in programme_channels:
+                if channel_id not in existing_channel_ids:
+                    channel_data.append((channel_id, ""))
+            
+            if not channel_data:
+                self.logger.info("No channel IDs found in EPG1")
                 return
             
-            # Write/update the CSV file with EPG1 channel IDs
-            with open(self.channel_mapping_file, 'w', encoding='utf-8', newline='') as f:
+            # Sort for consistent output
+            channel_data.sort(key=lambda x: x[0])
+            
+            # Write to channels_epg1.csv
+            with open(self.channels_epg1_file, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 
                 # Write header
-                writer.writerow(['EPG1_Channel_ID', 'EPG2_Channel_ID'])
+                writer.writerow(['EPG1_Channel_ID', 'Channel_Name'])
                 
-                # Write channel IDs with empty EPG2 column
-                for channel_id in channel_ids:
-                    writer.writerow([channel_id, ''])
+                # Write channel data
+                for channel_id, channel_name in channel_data:
+                    writer.writerow([channel_id, channel_name])
             
-            self.logger.info(f"Updated channel mapping CSV with {len(channel_ids)} channels from EPG1")
+            self.logger.info(f"Saved {len(channel_data)} EPG1 channels to {self.channels_epg1_file}")
             
         except Exception as e:
-            self.logger.error(f"Error updating channel mapping CSV: {e}")
+            self.logger.error(f"Error saving EPG1 channels to CSV: {e}")
 
-    def extract_epg2_channels_to_csv(self, epg2_root: ET.Element):
+    def save_epg2_channels_to_csv(self, epg2_root: ET.Element):
         """
-        Extract unique channel IDs from EPG2 and save them to others.csv.
+        Save EPG2 channel IDs to channels_epg2.csv.
         
         Args:
             epg2_root: Parsed XML root from EPG2 source
         """
         try:
-            # Extract unique channel IDs from EPG2
-            channel_ids = set()
+            # Extract channel data from EPG2
+            channel_data = []
             
             # Get channels from channel elements
+            channel_ids_seen = set()
             for channel in epg2_root.findall('.//channel'):
                 channel_id = channel.get('id', '').strip()
-                if channel_id:
-                    channel_ids.add(channel_id)
+                if channel_id and channel_id not in channel_ids_seen:
+                    channel_ids_seen.add(channel_id)
+                    
+                    # Try to get channel name from display-name element
+                    channel_name = ""
+                    display_name = channel.find('display-name')
+                    if display_name is not None and display_name.text:
+                        channel_name = display_name.text.strip()
+                    
+                    channel_data.append((channel_id, channel_name))
             
             # Also get channels from programme elements (in case channels are only in programmes)
             for programme in epg2_root.findall('.//programme'):
                 channel_id = programme.get('channel', '').strip()
-                if channel_id:
-                    channel_ids.add(channel_id)
+                if channel_id and channel_id not in channel_ids_seen:
+                    channel_ids_seen.add(channel_id)
+                    channel_data.append((channel_id, ""))
             
-            if not channel_ids:
+            if not channel_data:
                 self.logger.info("No channel IDs found in EPG2")
                 return
             
             # Sort for consistent output
-            sorted_channels = sorted(list(channel_ids))
+            channel_data.sort(key=lambda x: x[0])
             
-            # Write to others.csv
-            with open(self.others_csv_file, 'w', encoding='utf-8', newline='') as f:
+            # Write to channels_epg2.csv
+            with open(self.channels_epg2_file, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 
                 # Write header
                 writer.writerow(['EPG2_Channel_ID', 'Channel_Name'])
                 
-                # Write channel IDs with empty name column
-                for channel_id in sorted_channels:
-                    # Try to get channel name from channel element
-                    channel_name = ""
-                    for channel in epg2_root.findall('.//channel'):
-                        if channel.get('id') == channel_id:
-                            display_name = channel.find('display-name')
-                            if display_name is not None and display_name.text:
-                                channel_name = display_name.text.strip()
-                                break
-                    
+                # Write channel data
+                for channel_id, channel_name in channel_data:
                     writer.writerow([channel_id, channel_name])
             
-            self.logger.info(f"Extracted {len(sorted_channels)} unique EPG2 channels to {self.others_csv_file}")
+            self.logger.info(f"Saved {len(channel_data)} EPG2 channels to {self.channels_epg2_file}")
             
         except Exception as e:
-            self.logger.error(f"Error extracting EPG2 channels to CSV: {e}")
+            self.logger.error(f"Error saving EPG2 channels to CSV: {e}")
 
     def create_sample_channel_mapping(self):
         """
@@ -536,7 +543,7 @@ class EPGCacher:
                             icon.set('height', '200')
                     
                     merged_count += 1
-                    self.logger.debug(f"Added {len(matched_images)} images to programme {epg1_channel} at {epg1_start}")
+                    self.logger.info(f"Added {len(matched_images)} images to programme {epg1_channel} at {epg1_start}")
         
         return merged_count
 
@@ -808,11 +815,8 @@ class EPGCacher:
                 self.logger.error("Failed to parse new EPG data, keeping existing file")
                 return
             
-            # Step 3.5: Update channel mapping CSV with EPG1 channels if it's empty
-            self.update_channel_mapping_with_epg1_channels(new_root)
-            
-            # Reload channel mapping in case it was updated
-            self.channel_mapping = self.load_channel_mapping()
+            # Step 3.5: Save EPG1 channels to separate CSV file
+            self.save_epg1_channels_to_csv(new_root)
             
             # Step 4: If we have old EPG data, merge missing information
             merged_programmes = 0
@@ -844,8 +848,8 @@ class EPGCacher:
                 if epg2_content:
                     epg2_root = self.parse_epg_xml(epg2_content)
                     if epg2_root is not None:
-                        # Extract EPG2 channels to others.csv for web UI
-                        self.extract_epg2_channels_to_csv(epg2_root)
+                        # Save EPG2 channels to separate CSV file
+                        self.save_epg2_channels_to_csv(epg2_root)
                         
                         # Extract and merge images
                         image_map = self.extract_programme_images(epg2_root)

@@ -3,48 +3,178 @@
 {% block title %}Dashboard - EPG Channel Mapping Manager{% endblock %}
 
 {% block content %}
-<h2>Dashboard</h2>
-<p>Overview of your channel mapping configuration.</p>
-
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-number">{{ stats.total }}</div>
-        <div class="stat-label">Total Channels</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-number">{{ stats.mapped }}</div>
-        <div class="stat-label">Mapped Channels</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-number">{{ stats.unmapped }}</div>
-        <div class="stat-label">Unmapped Channels</div>
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-3">
+            <i class="fas fa-chart-bar me-2"></i>
+            Dashboard
+        </h2>
+        <p class="text-secondary mb-4">Overview of your channel mapping configuration.</p>
     </div>
 </div>
 
-<div style="margin-top: 30px;">
-    <h3>Quick Actions</h3>
-    <p style="margin-bottom: 20px;">Get started with managing your channel mappings:</p>
-    
-    <a href="{{ url_for('mappings') }}" class="btn btn-success">
-        Manage Channel Mappings
-    </a>
-    
-    <button onclick="showEPG2Channels()" class="btn" style="margin-left: 10px;">
-        View EPG2 Channels
-    </button>
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card border-primary">
+            <div class="card-body text-center">
+                <div class="display-4 text-primary mb-2">
+                    <i class="fas fa-list"></i>
+                </div>
+                <h3 class="card-title h2 text-primary">{{ stats.total }}</h3>
+                <p class="card-text text-secondary mb-0">Total Channels</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-success">
+            <div class="card-body text-center">
+                <div class="display-4 text-success mb-2">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <h3 class="card-title h2 text-success">{{ stats.mapped }}</h3>
+                <p class="card-text text-secondary mb-0">Mapped Channels</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <div class="display-4 text-warning mb-2">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <h3 class="card-title h2 text-warning">{{ stats.unmapped }}</h3>
+                <p class="card-text text-secondary mb-0">Unmapped Channels</p>
+            </div>
+        </div>
+    </div>
 </div>
 
-<div id="epg2ChannelsModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
-    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; max-width: 600px; max-height: 80%; overflow-y: auto;">
-        <h3>Available EPG2 Channels</h3>
-        <div id="epg2ChannelsList">Loading...</div>
-        <button onclick="hideEPG2Channels()" class="btn" style="margin-top: 20px;">Close</button>
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-rocket me-2"></i>
+                    Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="card-text text-secondary mb-3">Get started with managing your channel mappings:</p>
+                
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{{ url_for('mappings') }}" class="btn btn-success">
+                        <i class="fas fa-map me-1"></i>
+                        Manage Channel Mappings
+                    </a>
+                    
+                    <button onclick="showEPG2Channels()" class="btn btn-outline-primary">
+                        <i class="fas fa-images me-1"></i>
+                        View EPG2 Channels
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card border-info">
+            <div class="card-header bg-info text-dark">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    System Status
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small">Channel Mappings:</span>
+                    <span class="badge bg-{% if stats.total > 0 %}success{% else %}secondary{% endif %}">
+                        {% if stats.total > 0 %}Active{% else %}Empty{% endif %}
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="small">Coverage:</span>
+                    <span class="text-{% if stats.total > 0 %}success{% else %}secondary{% endif %}">
+                        {% if stats.total > 0 %}{{ ((stats.mapped / stats.total) * 100)|round(1) }}%{% else %}0%{% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- EPG2 Channels Modal -->
+<div class="modal fade" id="epg2ChannelsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-images me-2"></i>
+                    Available EPG2 Channels
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="epg2ChannelsList">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2 text-secondary">Loading EPG2 channels...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-question-circle me-2"></i>
+                About Channel Mapping
+            </h5>
+        </div>
+        <div class="card-body">
+            <p class="card-text">
+                Channel mapping allows you to correlate channels between different EPG sources. 
+                The EPG1 source is your main EPG data, while EPG2 can provide additional information 
+                like program images. Map the channel IDs from both sources to merge their data effectively.
+            </p>
+            <div class="row mt-3">
+                <div class="col-md-4">
+                    <h6 class="text-primary">
+                        <i class="fas fa-tv me-1"></i>
+                        EPG1 Channel ID
+                    </h6>
+                    <p class="small text-secondary">Channel identifier from your main EPG source</p>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-success">
+                        <i class="fas fa-images me-1"></i>
+                        EPG2 Channel ID
+                    </h6>
+                    <p class="small text-secondary">Corresponding channel identifier from your image/secondary EPG source</p>
+                </div>
+                <div class="col-md-4">
+                    <h6 class="text-info">
+                        <i class="fas fa-sync me-1"></i>
+                        Auto-Population
+                    </h6>
+                    <p class="small text-secondary">EPG1 channels are automatically populated when EPG data is fetched</p>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
 function showEPG2Channels() {
-    document.getElementById('epg2ChannelsModal').style.display = 'block';
+    const modal = new bootstrap.Modal(document.getElementById('epg2ChannelsModal'));
+    modal.show();
     
     fetch('/api/epg2_channels')
         .then(response => response.json())
@@ -52,41 +182,51 @@ function showEPG2Channels() {
             const listDiv = document.getElementById('epg2ChannelsList');
             
             if (channels.length === 0) {
-                listDiv.innerHTML = '<p style="color: #666;">No EPG2 channels found. Run the EPG cacher with EPG2_URL configured to populate this list.</p>';
+                listDiv.innerHTML = `
+                    <div class="text-center py-4">
+                        <i class="fas fa-inbox fa-3x text-secondary mb-3"></i>
+                        <h6 class="text-secondary">No EPG2 Channels Found</h6>
+                        <p class="text-muted small">Run the EPG cacher with EPG2_URL configured to populate this list.</p>
+                    </div>
+                `;
             } else {
-                let html = `<p><strong>${channels.length} EPG2 channels available:</strong></p><ul style="max-height: 300px; overflow-y: auto; margin: 10px 0;">`;
+                let html = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>${channels.length}</strong> EPG2 channels available
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Channel ID</th>
+                                    <th>Channel Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
                 channels.forEach(channel => {
-                    html += `<li style="margin: 5px 0;"><code>${channel.id}</code>`;
-                    if (channel.name !== channel.id) {
-                        html += ` - ${channel.name}`;
-                    }
-                    html += '</li>';
+                    html += `
+                        <tr>
+                            <td><code>${channel.id}</code></td>
+                            <td>${channel.name !== channel.id ? channel.name : '<em class="text-muted">No name</em>'}</td>
+                        </tr>
+                    `;
                 });
-                html += '</ul>';
+                
+                html += '</tbody></table></div>';
                 listDiv.innerHTML = html;
             }
         })
         .catch(error => {
-            document.getElementById('epg2ChannelsList').innerHTML = '<p style="color: #e74c3c;">Error loading EPG2 channels.</p>';
+            document.getElementById('epg2ChannelsList').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error loading EPG2 channels.
+                </div>
+            `;
         });
 }
-
-function hideEPG2Channels() {
-    document.getElementById('epg2ChannelsModal').style.display = 'none';
-}
 </script>
-
-<div style="margin-top: 40px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-    <h3>About Channel Mapping</h3>
-    <p>
-        Channel mapping allows you to correlate channels between different EPG sources. 
-        The EPG1 source is your main EPG data, while EPG2 can provide additional information 
-        like program images. Map the channel IDs from both sources to merge their data effectively.
-    </p>
-    <ul style="margin-top: 15px; padding-left: 20px;">
-        <li><strong>EPG1 Channel ID:</strong> Channel identifier from your main EPG source</li>
-        <li><strong>EPG2 Channel ID:</strong> Corresponding channel identifier from your image/secondary EPG source</li>
-        <li><strong>Auto-Population:</strong> EPG1 channels are automatically populated when EPG data is fetched</li>
-    </ul>
-</div>
 {% endblock %}

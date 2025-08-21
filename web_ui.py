@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Web UI for EPG Channel Mapping Management
-Provides a simple web interface to manage channel mappings between EPG sources.
+Main entry point for EPG Channel Mapping Web UI
 """
 
 import csv
@@ -11,26 +10,26 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from typing import List, Dict, Tuple
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'epg-cacher-secret-key-change-in-production')
+app.secret_key = os.environ.get('SESSION_SECRET', 'epg-cacher-secret-key-change-in-production')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
-
-# Configuration
-OUTPUT_DIR = "output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-CHANNEL_MAPPING_FILE = os.path.join(OUTPUT_DIR, "channel_mapping.csv")
-OTHERS_CSV_FILE = os.path.join(OUTPUT_DIR, "others.csv")
+output_dir = "output"
+os.makedirs(output_dir, exist_ok=True)
+CHANNEL_MAPPING_FILE = os.path.join(output_dir, 'channel_mapping.csv')
+CHANNELS_EPG1_FILE = os.path.join(output_dir, 'channels_epg1.csv')
+CHANNELS_EPG2_FILE = os.path.join(output_dir, 'channels_epg2.csv')
 
 class ChannelMappingManager:
     """Manages channel mapping operations for the web UI."""
     
     def __init__(self, csv_file: str = CHANNEL_MAPPING_FILE):
         self.csv_file = csv_file
-        self.others_csv_file = OTHERS_CSV_FILE
+        self.channels_epg1_file = CHANNELS_EPG1_FILE
+        self.channels_epg2_file = CHANNELS_EPG2_FILE
         
     def load_mappings(self) -> List[Dict[str, str]]:
         """Load all channel mappings from CSV file."""
@@ -93,16 +92,42 @@ class ChannelMappingManager:
             'unmapped': unmapped_channels
         }
     
+    def load_epg1_channels(self) -> List[Dict[str, str]]:
+        """Load EPG1 channels from channels_epg1.csv file."""
+        epg1_channels = []
+        
+        if not os.path.exists(self.channels_epg1_file):
+            logger.info(f"EPG1 channels CSV file {self.channels_epg1_file} not found")
+            return epg1_channels
+            
+        try:
+            with open(self.channels_epg1_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    channel_id = row.get('EPG1_Channel_ID', '').strip()
+                    channel_name = row.get('Channel_Name', '').strip()
+                    
+                    if channel_id:
+                        epg1_channels.append({
+                            'id': channel_id,
+                            'name': channel_name or channel_id
+                        })
+                        
+        except Exception as e:
+            logger.error(f"Error loading EPG1 channels: {e}")
+            
+        return epg1_channels
+
     def load_epg2_channels(self) -> List[Dict[str, str]]:
-        """Load EPG2 channels from others.csv file."""
+        """Load EPG2 channels from channels_epg2.csv file."""
         epg2_channels = []
         
-        if not os.path.exists(self.others_csv_file):
-            logger.info(f"Others CSV file {self.others_csv_file} not found")
+        if not os.path.exists(self.channels_epg2_file):
+            logger.info(f"EPG2 channels CSV file {self.channels_epg2_file} not found")
             return epg2_channels
             
         try:
-            with open(self.others_csv_file, 'r', encoding='utf-8') as f:
+            with open(self.channels_epg2_file, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     channel_id = row.get('EPG2_Channel_ID', '').strip()
@@ -132,37 +157,18 @@ def index():
 def mappings():
     """View and edit channel mappings."""
     mappings = mapping_manager.load_mappings()
-    epg2_channels = mapping_manager.load_epg2_channels()
-    return render_template('mappings.html', mappings=mappings, epg2_channels=epg2_channels)
-
-@app.route('/save_mappings', methods=['POST'])
-def save_mappings():
-    """Save updated channel mappings."""
-    try:
-        # Get form data
-        epg1_channels = request.form.getlist('epg1_channel')
-        epg2_channels = request.form.getlist('epg2_channel')
-        
-        # Combine into mappings list
-        mappings = []
-        for epg1, epg2 in zip(epg1_channels, epg2_channels):
-            if epg1.strip():  # Only save rows with EPG1 channel ID
-                mappings.append({
-                    'epg1_channel': epg1.strip(),
-                    'epg2_channel': epg2.strip()
-                })
-        
-        # Save to CSV
-        if mapping_manager.save_mappings(mappings):
-            flash(f'Successfully saved {len(mappings)} channel mappings!', 'success')
-        else:
-            flash('Error saving channel mappings.', 'error')
-            
-    except Exception as e:
-        logger.error(f"Error in save_mappings: {e}")
-        flash(f'Error saving mappings: {str(e)}', 'error')
+    epg1_channels = mapping_manager.load_epg1_channels()
+    epg2_channels = mapping_manager.load_epg2_channels()   
+     
+    # Filter out EPG1 channels that are already mapped
+    existing_epg1_channels = {mapping['epg1_channel'] for mapping in mappings if mapping['epg1_channel']}
+    available_epg1_channels = [channel for channel in epg1_channels if channel['id'] not in existing_epg1_channels]
     
-    return redirect(url_for('mappings'))
+    return render_template('mappings.html', 
+                         mappings=mappings, 
+                         epg1_channels=available_epg1_channels, 
+                         epg2_channels=epg2_channels)
+
 
 @app.route('/add_mapping', methods=['POST'])
 def add_mapping():
@@ -246,6 +252,12 @@ def api_mappings():
     mappings = mapping_manager.load_mappings()
     return jsonify(mappings)
 
+@app.route('/api/epg1_channels')
+def api_epg1_channels():
+    """API endpoint for EPG1 channels."""
+    epg1_channels = mapping_manager.load_epg1_channels()
+    return jsonify(epg1_channels)
+
 @app.route('/api/epg2_channels')
 def api_epg2_channels():
     """API endpoint for EPG2 channels."""
@@ -253,4 +265,4 @@ def api_epg2_channels():
     return jsonify(epg2_channels)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8000, debug=True)

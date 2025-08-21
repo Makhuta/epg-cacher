@@ -3,119 +3,207 @@
 {% block title %}Channel Mappings - EPG Channel Mapping Manager{% endblock %}
 
 {% block content %}
-<h2>Channel Mappings</h2>
-<p>Map channels from your main EPG (EPG1) to your secondary EPG source (EPG2).</p>
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-3">
+            <i class="fas fa-map me-2"></i>
+            Channel Mappings
+        </h2>
+        <p class="text-secondary mb-4">Map channels from your main EPG (EPG1) to your secondary EPG source (EPG2).</p>
+    </div>
+</div>
 
-<!-- Add New Mapping Form -->
-<div class="add-form">
-    <h3>Add New Channel Mapping</h3>
+<!-- Add New Mapping Section -->
+<div class="add-mapping-section">
+    <div class="section-header">
+        <h3 class="h5 mb-0 text-success">
+            <i class="fas fa-plus-circle me-2"></i>
+            Add New Channel Mapping
+        </h3>
+    </div>
+    
     <form method="POST" action="{{ url_for('add_mapping') }}">
-        <div class="form-row">
-            <div class="form-group">
-                <label for="epg1_channel">EPG1 Channel ID:</label>
-                <input type="text" id="epg1_channel" name="epg1_channel" required 
-                       placeholder="e.g., channel1.example.com">
-            </div>
-            <div class="form-group">
-                <label for="epg2_channel">EPG2 Channel ID:</label>
-                {% if epg2_channels %}
-                <select id="epg2_channel" name="epg2_channel" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                    <option value="">Select EPG2 Channel (optional)</option>
-                    {% for channel in epg2_channels %}
-                    <option value="{{ channel.id }}">{{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}</option>
+        <div class="row g-3">
+            <div class="col-md-5">
+                <label for="epg1_channel" class="form-label">
+                    <i class="fas fa-tv me-1"></i>
+                    EPG1 Channel ID
+                </label>
+                {% if epg1_channels %}
+                <select id="epg1_channel" name="epg1_channel" class="form-select" required>
+                    <option value="">Select EPG1 Channel</option>
+                    {% for channel in epg1_channels %}
+                    <option value="{{ channel.id }}">
+                        {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
+                    </option>
                     {% endfor %}
                 </select>
                 {% else %}
-                <input type="text" id="epg2_channel" name="epg2_channel" 
-                       placeholder="e.g., ch001 (optional)">
-                <p style="font-size: 12px; color: #666; margin-top: 5px;">
-                    💡 To see EPG2 channels here, run the EPG cacher first to fetch EPG2 data
-                </p>
+                <input type="text" id="epg1_channel" name="epg1_channel" class="form-control" required 
+                       placeholder="e.g., channel1.example.com">
+                <div class="form-text">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Run the EPG cacher first to see EPG1 channels in a dropdown
+                </div>
                 {% endif %}
             </div>
-            <div class="form-group">
-                <button type="submit" class="btn btn-success">Add Mapping</button>
+            
+            <div class="col-md-5">
+                <label for="epg2_channel" class="form-label">
+                    <i class="fas fa-images me-1"></i>
+                    EPG2 Channel ID
+                </label>
+                {% if epg2_channels %}
+                <select id="epg2_channel" name="epg2_channel" class="form-select">
+                    <option value="">Select EPG2 Channel (optional)</option>
+                    {% for channel in epg2_channels %}
+                    <option value="{{ channel.id }}">
+                        {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <input type="text" id="epg2_channel" name="epg2_channel" class="form-control" 
+                       placeholder="e.g., ch001 (optional)">
+                <div class="form-text">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Run the EPG cacher first to see EPG2 channels in a dropdown
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-success w-100">
+                    <i class="fas fa-plus me-1"></i>
+                    Add Mapping
+                </button>
             </div>
         </div>
     </form>
 </div>
 
-<!-- Channel Mappings Table -->
-<form method="POST" action="{{ url_for('save_mappings') }}">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3>Current Channel Mappings ({{ mappings|length }} channels)</h3>
-        <button type="submit" class="btn btn-success">Save All Changes</button>
+<!-- Existing Mappings Section -->
+<div class="existing-mappings-section">
+    <div class="section-header">
+        <h3 class="h5 mb-0">
+            <i class="fas fa-list me-2"></i>
+            Current Channel Mappings 
+            <span class="badge bg-secondary">{{ mappings|length }}</span>
+        </h3>
     </div>
     
     {% if mappings %}
-        <table>
-            <thead>
-                <tr>
-                    <th style="width: 40%;">EPG1 Channel ID</th>
-                    <th style="width: 40%;">EPG2 Channel ID</th>
-                    <th style="width: 20%;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for mapping in mappings %}
-                <tr>
-                    <td>
-                        <input type="text" name="epg1_channel" 
-                               value="{{ mapping.epg1_channel }}" 
-                               {% if mapping.epg1_channel %}readonly{% endif %}
-                               placeholder="EPG1 Channel ID">
-                    </td>
-                    <td>
-                        {% if epg2_channels %}
-                        <select name="epg2_channel" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
-                            <option value="">Select EPG2 Channel</option>
-                            {% for channel in epg2_channels %}
-                            <option value="{{ channel.id }}" {% if channel.id == mapping.epg2_channel %}selected{% endif %}>
-                                {{ channel.id }}{% if channel.name != channel.id %} - {{ channel.name }}{% endif %}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        {% else %}
-                        <input type="text" name="epg2_channel" 
-                               value="{{ mapping.epg2_channel }}" 
-                               placeholder="EPG2 Channel ID (optional)">
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if mapping.epg1_channel %}
-                        <form method="POST" action="{{ url_for('delete_mapping') }}" 
-                              style="display: inline;"
-                              onsubmit="return confirm('Are you sure you want to delete this mapping?');">
-                            <input type="hidden" name="epg1_channel" value="{{ mapping.epg1_channel }}">
-                            <button type="submit" class="btn btn-danger" style="font-size: 12px; padding: 5px 10px;">
-                                Delete
-                            </button>
-                        </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        
-        <div style="margin-top: 20px;">
-            <button type="submit" class="btn btn-success">Save All Changes</button>
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th style="width: 40%;">
+                            <i class="fas fa-tv me-1"></i>
+                            EPG1 Channel ID
+                        </th>
+                        <th style="width: 40%;">
+                            <i class="fas fa-images me-1"></i>
+                            EPG2 Channel ID
+                        </th>
+                        <th style="width: 20%;" class="text-center">
+                            <i class="fas fa-cog me-1"></i>
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mapping in mappings %}
+                    <tr>
+                        <td>
+                            <div class="read-only-field">
+                                <strong>{{ mapping.epg1_channel }}</strong>
+                            </div>
+                        </td>
+                        <td>
+                            {% if mapping.epg2_channel %}
+                                <div class="read-only-field">
+                                    {{ mapping.epg2_channel }}
+                                    {% if epg2_channels %}
+                                        {% for channel in epg2_channels %}
+                                            {% if channel.id == mapping.epg2_channel and channel.name != channel.id %}
+                                                <small class="text-muted ms-2">- {{ channel.name }}</small>
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <div class="read-only-field empty">
+                                    <i class="fas fa-minus me-1"></i>
+                                    No mapping
+                                </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if mapping.epg1_channel %}
+                            <form method="POST" action="{{ url_for('delete_mapping') }}" 
+                                  style="display: inline;"
+                                  onsubmit="return confirm('Are you sure you want to delete the mapping for \'{{ mapping.epg1_channel }}\'?');">
+                                <input type="hidden" name="epg1_channel" value="{{ mapping.epg1_channel }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" 
+                                        title="Delete mapping">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     {% else %}
-        <div style="text-align: center; padding: 40px; color: #666;">
-            <p><strong>No channel mappings found.</strong></p>
-            <p>Add a new mapping above or wait for the EPG cacher to automatically populate EPG1 channels.</p>
+        <div class="text-center py-5">
+            <div class="mb-3">
+                <i class="fas fa-inbox fa-3x text-secondary"></i>
+            </div>
+            <h5 class="text-secondary">No Channel Mappings Found</h5>
+            <p class="text-muted">
+                Add a new mapping above or run the EPG cacher to automatically populate EPG1 channels.
+            </p>
         </div>
     {% endif %}
-</form>
+</div>
 
-<div style="margin-top: 40px; padding: 20px; background: #e8f4f8; border-left: 4px solid #3498db; border-radius: 4px;">
-    <h4>💡 Tips:</h4>
-    <ul style="margin: 10px 0; padding-left: 20px;">
-        <li><strong>Auto-Population:</strong> EPG1 channels are automatically added when the EPG cacher fetches data</li>
-        <li><strong>EPG2 Dropdown:</strong> {% if epg2_channels %}Available EPG2 channels are loaded from others.csv{% else %}EPG2 channels will appear in dropdown after running EPG cacher with EPG2_URL{% endif %}</li>
-        <li><strong>Save Changes:</strong> Remember to click "Save All Changes" after editing channel mappings</li>
-        <li><strong>Delete Mappings:</strong> Use the Delete button to remove unwanted channel mappings</li>
-    </ul>
+<!-- Information Panel -->
+<div class="mt-4">
+    <div class="card border-info">
+        <div class="card-header bg-info text-dark">
+            <h6 class="card-title mb-0">
+                <i class="fas fa-lightbulb me-2"></i>
+                Tips & Information
+            </h6>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="text-info">
+                        <i class="fas fa-cogs me-1"></i>
+                        How It Works
+                    </h6>
+                    <ul class="small mb-0">
+                        <li><strong>Auto-Population:</strong> EPG1 channels are automatically added when the EPG cacher fetches data</li>
+                        <li><strong>Read-Only Display:</strong> Existing mappings are shown as read-only to prevent accidental changes</li>
+                        <li><strong>Individual Management:</strong> Add new mappings or delete existing ones individually</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="text-info">
+                        <i class="fas fa-question-circle me-1"></i>
+                        Channel Sources
+                    </h6>
+                    <ul class="small mb-0">
+                        <li><strong>EPG1:</strong> Your main EPG data source with program information</li>
+                        <li><strong>EPG2:</strong> Secondary EPG source, typically for program images</li>
+                        <li><strong>Dropdowns:</strong> Available when EPG cacher has fetched channel data</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
