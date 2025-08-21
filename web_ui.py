@@ -12,6 +12,11 @@ from typing import List, Dict, Tuple
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'epg-cacher-secret-key-change-in-production')
 
+# Configure Flask app for header size limits
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max request size
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -158,6 +163,32 @@ class ChannelMappingManager:
 # Initialize manager
 mapping_manager = ChannelMappingManager()
 
+# Error handlers for header/request size issues
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Handle request too large errors."""
+    flash('Request too large. Please try again.', 'error')
+    return redirect(url_for('index')), 413
+
+@app.errorhandler(400)
+def bad_request(error):
+    """Handle bad request errors including header issues."""
+    flash('Bad request. Please clear your browser cache and try again.', 'error')
+    return redirect(url_for('index')), 400
+
+@app.before_request
+def clear_large_session():
+    """Clear session if it becomes too large."""
+    try:
+        # Estimate session size
+        session_size = len(str(request.cookies.get('session', '')))
+        if session_size > 3000:  # If session cookie is larger than 3KB
+            from flask import session
+            session.clear()
+            logger.warning("Cleared large session data")
+    except Exception:
+        pass
+
 @app.route('/')
 def index():
     """Main dashboard showing channel mapping overview."""
@@ -169,8 +200,8 @@ def mappings():
     """View and edit channel mappings."""
     mappings = mapping_manager.load_mappings()
     epg1_channels = mapping_manager.load_epg1_channels()
-    epg2_channels = mapping_manager.load_epg2_channels()   
-
+    epg2_channels = mapping_manager.load_epg2_channels()
+    
     # Filter out EPG1 channels that are already mapped
     existing_epg1_channels = {mapping['epg1_channel'] for mapping in mappings if mapping['epg1_channel']}
     available_epg1_channels = [channel for channel in epg1_channels if channel['id'] not in existing_epg1_channels]
@@ -179,7 +210,6 @@ def mappings():
                          mappings=mappings, 
                          epg1_channels=available_epg1_channels, 
                          epg2_channels=epg2_channels)
-
 
 @app.route('/add_mapping', methods=['POST'])
 def add_mapping():

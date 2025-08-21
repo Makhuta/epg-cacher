@@ -1,7 +1,7 @@
 # Gunicorn configuration file for EPG Channel Mapping Web UI
 
 # Server socket
-bind = "0.0.0.0:5000"
+bind = "0.0.0.0:8000"
 backlog = 2048
 
 # Worker processes
@@ -15,6 +15,11 @@ keepalive = 2
 max_requests = 1000
 max_requests_jitter = 100
 
+# Header size limits to fix "Request Header Fields Too Large" error
+limit_request_line = 8190
+limit_request_fields = 200
+limit_request_field_size = 16384
+
 # Logging
 accesslog = "-"
 errorlog = "-"
@@ -26,8 +31,3 @@ proc_name = "epg_webui"
 
 # Preload app for better performance
 preload_app = True
-
-# Security
-limit_request_line = 4094
-limit_request_fields = 100
-limit_request_field_size = 8190
