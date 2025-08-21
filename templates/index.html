@@ -66,6 +66,11 @@
                         <i class="fas fa-map me-1"></i>
                         Manage Channel Mappings
                     </a>
+
+                    <button onclick="showEPG1Channels()" class="btn btn-outline-primary">
+                        <i class="fas fa-images me-1"></i>
+                        View EPG1 Channels
+                    </button>
                     
                     <button onclick="showEPG2Channels()" class="btn btn-outline-primary">
                         <i class="fas fa-images me-1"></i>
@@ -202,6 +207,33 @@
 </div>
 
 <!-- EPG2 Channels Modal -->
+<div class="modal fade" id="epg1ChannelsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-images me-2"></i>
+                    Available EPG1 Channels
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="epg1ChannelsList">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2 text-secondary">Loading EPG1 channels...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="epg2ChannelsModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -271,6 +303,63 @@
 </div>
 
 <script>
+function showEPG1Channels() {
+    const modal = new bootstrap.Modal(document.getElementById('epg1ChannelsModal'));
+    modal.show();
+    
+    fetch('/api/epg1_channels')
+        .then(response => response.json())
+        .then(channels => {
+            const listDiv = document.getElementById('epg1ChannelsList');
+            
+            if (channels.length === 0) {
+                listDiv.innerHTML = `
+                    <div class="text-center py-4">
+                        <i class="fas fa-inbox fa-3x text-secondary mb-3"></i>
+                        <h6 class="text-secondary">No EPG1 Channels Found</h6>
+                        <p class="text-muted small">Run the EPG cacher with EPG1_URL configured to populate this list.</p>
+                    </div>
+                `;
+            } else {
+                let html = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>${channels.length}</strong> EPG1 channels available
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Channel ID</th>
+                                    <th>Channel Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                channels.forEach(channel => {
+                    html += `
+                        <tr>
+                            <td><code>${channel.id}</code></td>
+                            <td>${channel.name !== channel.id ? channel.name : '<em class="text-muted">No name</em>'}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += '</tbody></table></div>';
+                listDiv.innerHTML = html;
+            }
+        })
+        .catch(error => {
+            document.getElementById('epg1ChannelsList').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error loading EPG1 channels.
+                </div>
+            `;
+        });
+}
+
 function showEPG2Channels() {
     const modal = new bootstrap.Modal(document.getElementById('epg2ChannelsModal'));
     modal.show();
