@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    supervisor \
     nginx \
     && rm -rf /var/lib/apt/lists/*
 
@@ -22,6 +23,8 @@ COPY . /app/
 ENV INTERVAL=3600
 
 EXPOSE 8000
+
+COPY supervisord.conf /etc/supervisord.conf
 
 COPY nginx.conf /etc/nginx/nginx.conf
 

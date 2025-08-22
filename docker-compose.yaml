@@ -1,9 +1,14 @@
 services:
-  epg-fetcher:
-    container_name: epg-fetcher
+  epg_cacher:
+    image: epg_cacher
+    container_name: epg_cacher
+    ports:
+      - 8000:8000
     environment:
-      EPG_URL: "URL"
-      INTERVAL: 3600
+      EPG_URL: "EPG_URL"
+      EPG2_URL: "EPG2_URL"
+      TIME_TOLERANCE_MINUTES: "10"
     volumes:
       - ./output:/app/output
+      - ./logs:/var/log/supervisor
     restart: unless-stopped
