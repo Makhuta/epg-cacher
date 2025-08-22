@@ -1,7 +1,7 @@
-name: Release EPG fetcher
+name: Release EPG cacher
 
 env:
-  IMAGE_NAME: epg-fetcher
+  IMAGE_NAME: epg-cacher
 
 on:
   release:
