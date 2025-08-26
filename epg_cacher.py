@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 import requests
 import schedule
+from croniter import croniter
 
 
 class EPGCacher:
@@ -30,6 +31,7 @@ class EPGCacher:
         self.epg_url = os.getenv("EPG_URL")
         if not self.epg_url:
             raise ValueError("EPG_URL environment variable is required")
+        self.skip_cron = os.getenv("SKIP_CRON", "* * * * *")
         
         self.epg2_url = os.getenv("EPG2_URL")  # Optional second EPG URL for images
         self.time_tolerance_minutes = int(os.getenv("TIME_TOLERANCE_MINUTES", "10"))
@@ -75,6 +77,26 @@ class EPGCacher:
             ]
         )
         self.logger = logging.getLogger('EPGCacher')
+
+    def is_now_in_cron(self, cron_expr: str, grace_period: int = 60) -> bool:
+        """
+        Check if the current time matches a cron expression (within grace_period seconds).
+        
+        Args:
+            cron_expr: A standard cron string (e.g., "0 9 * * *").
+            grace_period: How close (in seconds) current time needs to be to match.
+        
+        Returns:
+            True if current time is within cron schedule, False otherwise.
+        """
+        now = datetime.now()
+        base = now - timedelta(seconds=grace_period)
+        
+        # Get previous scheduled run
+        itr = croniter(cron_expr, base)
+        prev_time = itr.get_next(datetime)
+
+        return abs((prev_time - now).total_seconds()) <= grace_period
 
     def load_channel_mapping(self) -> Dict[str, str]:
         """
@@ -796,6 +818,10 @@ class EPGCacher:
     def update_epg(self):
         """Main EPG update process."""
         self.logger.info("Starting EPG update process")
+
+        if self.is_now_in_cron(self.skip_cron):
+            self.logger.info("This time is configured to be skipped from scanning")
+            return
         
         try:
             # Step 1: Backup current EPG
