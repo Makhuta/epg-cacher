@@ -33,6 +33,9 @@ class EPGCacher:
         self.epg_url = os.getenv("EPG_URL")
         if not self.epg_url:
             raise ValueError("EPG_URL environment variable is required")
+        self.simpleiptv_url = os.getenv("SIMPLEIPTV_URL")
+        if not self.simpleiptv_url:
+            raise ValueError("SIMPLEIPTV_URL environment variable is required")
         self.skip_cron = os.getenv("SKIP_CRON", "* * * * *")
         
         self.epg2_url = os.getenv("EPG2_URL")  # Optional second EPG URL for images
@@ -43,6 +46,7 @@ class EPGCacher:
         os.makedirs(output_dir, exist_ok=True)
         self.epg_file_escaped = os.path.join(output_dir, "epg.xml")
         self.epg_file = os.path.join(output_dir, "epg_unescaped.xml")
+        self.simpleiptv_file = os.path.join(output_dir, "SimpleIPTV.m3u8")
         self.epg_old_file = os.path.join(output_dir, "epg_old.xml")
         self.channel_mapping_file = os.path.join(output_dir, "channel_mapping.csv")
         self.channels_epg1_file = os.path.join(output_dir, "channels_epg1.csv")
@@ -436,6 +440,58 @@ class EPGCacher:
         except Exception as e:
             self.logger.error(f"Unexpected error fetching image EPG data: {e}")
             return None
+        
+    def fetch_simpleiptv(self) -> bool:
+        """
+        Fetch SimpleIPTV M3U8 playlist, sanitize tvg-id using plex_safe_channel_id(),
+        and save to self.simpleiptv_file.
+        """
+        try:
+            if not self.simpleiptv_url:
+                raise ValueError("SIMPLEIPTV_URL is not configured")
+
+            self.logger.info(f"Fetching SimpleIPTV from {self.simpleiptv_url}")
+
+            response = self.session.get(self.simpleiptv_url, timeout=60)
+            response.raise_for_status()
+
+            content = response.content.decode(response.encoding or 'utf-8', errors='replace')
+
+            lines = content.splitlines()
+            updated_lines = []
+
+            for line in lines:
+                if line.startswith("#EXTINF:"):
+                    # Extract tvg-id if present
+                    # Example: #EXTINF:-1 tvg-id="Some Channel" tvg-name="Some Channel" group-title="Movies",Some Channel
+                    parts = line.split(' ')
+                    new_parts = []
+                    for part in parts:
+                        if part.startswith('tvg-id='):
+                            old_id = part.split('=', 1)[1].strip('"')
+                            new_id = self.plex_safe_channel_id(old_id)
+                            new_parts.append(f'tvg-id="{new_id}"')
+                            if old_id != new_id:
+                                self.logger.info(f"Updated tvg-id: {old_id} -> {new_id}")
+                        else:
+                            new_parts.append(part)
+                    line = ' '.join(new_parts)
+                updated_lines.append(line)
+
+            # Save updated M3U8
+            os.makedirs(os.path.dirname(self.simpleiptv_file), exist_ok=True)
+            with open(self.simpleiptv_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(updated_lines))
+
+            self.logger.info(f"Successfully saved SimpleIPTV playlist to {self.simpleiptv_file}")
+            return True
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Network error fetching SimpleIPTV: {e}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error fetching SimpleIPTV: {e}")
+            return False
 
     def extract_programme_images(self, epg2_root: ET.Element) -> Dict[str, List[str]]:
         """
@@ -971,6 +1027,12 @@ class EPGCacher:
                 self.logger.info(f"EPG escaped write completed successfully.")
             else:
                 self.logger.error("Failed to save escaped EPG file")
+            
+            # Step 7: Save escaped EPG
+            if self.fetch_simpleiptv():
+                self.logger.info(f"SimpleIPTV was saved successfully.")
+            else:
+                self.logger.error("Failed to save SimpleIPTV file")
                 
         except Exception as e:
             self.logger.error(f"Unexpected error during EPG update: {e}")
