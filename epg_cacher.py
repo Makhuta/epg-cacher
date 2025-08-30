@@ -22,6 +22,8 @@ from typing import Optional, Dict, List, Tuple
 import requests
 import schedule
 from croniter import croniter
+import urllib.parse
+import unicodedata
 
 
 class EPGCacher:
@@ -39,7 +41,8 @@ class EPGCacher:
         # File paths
         output_dir = "output"
         os.makedirs(output_dir, exist_ok=True)
-        self.epg_file = os.path.join(output_dir, "epg.xml")
+        self.epg_file_escaped = os.path.join(output_dir, "epg.xml")
+        self.epg_file = os.path.join(output_dir, "epg_unescaped.xml")
         self.epg_old_file = os.path.join(output_dir, "epg_old.xml")
         self.channel_mapping_file = os.path.join(output_dir, "channel_mapping.csv")
         self.channels_epg1_file = os.path.join(output_dir, "channels_epg1.csv")
@@ -814,6 +817,75 @@ class EPGCacher:
         except Exception as e:
             self.logger.error(f"Failed to save EPG file: {e}")
             return False
+        
+    def plex_safe_channel_id(self, raw_id: str) -> str:
+        """
+        Convert a channel id into a Plex-safe form.
+        - URL-decode first (%20 -> space, etc.)
+        - Remove diacritics (č -> c, š -> s, etc.)
+        - Remove spaces
+        - Allow only letters, digits, '.', '-', '_'
+        - Lowercase for consistency
+        """
+        # Decode percent escapes
+        decoded = urllib.parse.unquote(raw_id)
+
+        # Remove diacritics
+        normalized = unicodedata.normalize("NFKD", decoded)
+        no_diacritics = "".join(c for c in normalized if not unicodedata.combining(c))
+
+        # Remove spaces
+        no_spaces = no_diacritics.replace(" ", "")
+
+        # Keep only safe characters
+        safe = re.sub(r"[^A-Za-z0-9._-]", "", no_spaces)
+
+        return safe.lower()
+    
+    def save_escaped_epg_file(self) -> bool:
+        """
+        Read EPG XML from self.epg_file, escape all channel ids and programme channel refs
+        using plex_safe_channel_id(), and save to self.epg_file_escaped.
+        """
+        try:
+            # Parse existing EPG file
+            tree = ET.parse(self.epg_file)
+            root = tree.getroot()
+
+            # Process all <channel> elements
+            for channel in root.findall("channel"):
+                old_id = channel.get("id")
+                if old_id:
+                    new_id = self.plex_safe_channel_id(old_id)
+                    channel.set("id", new_id)
+
+            # Process all <programme> elements
+            for programme in root.findall("programme"):
+                old_channel = programme.get("channel")
+                if old_channel:
+                    new_channel = self.plex_safe_channel_id(old_channel)
+                    programme.set("channel", new_channel)
+
+            # Convert back to string
+            xml_str = ET.tostring(root, encoding="unicode", method="xml")
+
+            # Add XML declaration if not present
+            if not xml_str.startswith("<?xml"):
+                xml_str = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
+
+            # Sanitize XML content
+            xml_str = self.sanitize_utf8(xml_str)
+
+            # Write to new file
+            with codecs.open(self.epg_file_escaped, "w", encoding="utf-8") as f:
+                f.write(xml_str)
+
+            self.logger.info(f"Successfully saved escaped EPG file: {self.epg_file_escaped}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to save escaped EPG file: {e}")
+            return False
 
     def update_epg(self):
         """Main EPG update process."""
@@ -893,6 +965,12 @@ class EPGCacher:
                                f"Merged: {merged_channels} channels, {merged_programmes} programmes{image_info}")
             else:
                 self.logger.error("Failed to save updated EPG file")
+            
+            # Step 7: Save escaped EPG
+            if self.save_escaped_epg_file():
+                self.logger.info(f"EPG escaped write completed successfully.")
+            else:
+                self.logger.error("Failed to save escaped EPG file")
                 
         except Exception as e:
             self.logger.error(f"Unexpected error during EPG update: {e}")
