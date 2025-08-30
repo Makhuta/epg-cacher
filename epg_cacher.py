@@ -48,6 +48,7 @@ class EPGCacher:
         self.epg_file = os.path.join(output_dir, "epg_unescaped.xml")
         self.simpleiptv_file = os.path.join(output_dir, "SimpleIPTV.m3u8")
         self.epg_old_file = os.path.join(output_dir, "epg_old.xml")
+        self.channel_id_mapping_file = os.path.join(output_dir, "channel_id_mapping.csv")
         self.channel_mapping_file = os.path.join(output_dir, "channel_mapping.csv")
         self.channels_epg1_file = os.path.join(output_dir, "channels_epg1.csv")
         self.channels_epg2_file = os.path.join(output_dir, "channels_epg2.csv")
@@ -876,27 +877,49 @@ class EPGCacher:
         
     def plex_safe_channel_id(self, raw_id: str) -> str:
         """
-        Convert a channel id into a Plex-safe form.
-        - URL-decode first (%20 -> space, etc.)
-        - Remove diacritics (č -> c, š -> s, etc.)
-        - Remove spaces
-        - Allow only letters, digits, '.', '-', '_'
-        - Lowercase for consistency
+        Map raw channel IDs to persistent Plex-safe IDs using a CSV mapping.
+        Workflow:
+        1. Check if mapping file exists; create if not.
+        2. If raw_id already exists in mapping, return mapped ID.
+        3. Otherwise, assign next numeric ID and save to mapping.
         """
-        # Decode percent escapes
-        decoded = urllib.parse.unquote(raw_id)
+        # Ensure mapping file exists
+        if not os.path.exists(self.channel_id_mapping_file):
+            os.makedirs(os.path.dirname(self.channel_id_mapping_file), exist_ok=True)
+            with open(self.channel_id_mapping_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["raw_id", "mapped_id"])  # header
 
-        # Remove diacritics
-        normalized = unicodedata.normalize("NFKD", decoded)
-        no_diacritics = "".join(c for c in normalized if not unicodedata.combining(c))
+        # Load current mappings
+        mapping = {}
+        with open(self.channel_id_mapping_file, "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                mapping[row["raw_id"]] = row["mapped_id"]
 
-        # Remove spaces
-        no_spaces = no_diacritics.replace(" ", "")
+        # If already mapped, return existing
+        if raw_id in mapping:
+            return mapping[raw_id]
 
-        # Keep only safe characters
-        safe = re.sub(r"[^A-Za-z0-9._-]", "", no_spaces)
+        # Otherwise, assign next number as new ID
+        # Example: CH001, CH002, CH003...
+        existing_ids = set(mapping.values())
+        counter = 1
+        while True:
+            new_id = f"ch{counter:03d}"
+            if new_id not in existing_ids:
+                break
+            counter += 1
 
-        return safe.lower()
+        # Save new mapping
+        mapping[raw_id] = new_id
+        with open(self.channel_id_mapping_file, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([raw_id, new_id])
+
+        self.logger.info(f"Mapped channel '{raw_id}' -> '{new_id}'")
+
+        return new_id
     
     def save_escaped_epg_file(self) -> bool:
         """
