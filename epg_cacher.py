@@ -702,6 +702,40 @@ class EPGCacher:
         self.logger.warning(f"Could not parse datetime: {dt_str}")
         return None
 
+    def is_valid_programme_date(self, text) -> bool:
+        """
+        Check if text is a valid XMLTV <date> value.
+        Accepts: YYYY, YYYYMM, YYYYMMDD, YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, etc.
+
+        Args:
+            text: Content of a <date> element
+
+        Returns:
+            True if text represents a valid date, False otherwise
+        """
+        if not text or not text.strip():
+            return False
+
+        text = text.strip()
+
+        date_formats = [
+            '%Y',
+            '%Y%m',
+            '%Y%m%d',
+            '%Y-%m-%d',
+            '%Y-%m-%dT%H:%M:%S',
+            '%Y-%m-%dT%H:%M:%SZ',
+        ]
+
+        for fmt in date_formats:
+            try:
+                datetime.strptime(text, fmt)
+                return True
+            except ValueError:
+                continue
+
+        return False
+
     def get_programme_time_range(self, programme: ET.Element) -> Tuple[Optional[datetime], Optional[datetime]]:
         """
         Extract start and stop times from a programme element.
@@ -854,6 +888,16 @@ class EPGCacher:
             True if save successful, False otherwise
         """
         try:
+            # Remove <date> elements whose content is not a valid date
+            removed_date_count = 0
+            for programme in root.findall('.//programme'):
+                for date_elem in programme.findall('date'):
+                    if not self.is_valid_programme_date(date_elem.text):
+                        programme.remove(date_elem)
+                        removed_date_count += 1
+            if removed_date_count:
+                self.logger.info(f"Removed {removed_date_count} invalid/empty <date> elements from programmes")
+
             # Create XML string with proper declaration
             xml_str = ET.tostring(root, encoding='unicode', method='xml')
             
